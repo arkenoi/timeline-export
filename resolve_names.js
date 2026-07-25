@@ -27,6 +27,8 @@ const outFile = (args.includes('-o') ? args[args.indexOf('-o') + 1] : null);
 const CHROME = process.env.CHROME_PATH || '/usr/bin/chromium-browser';
 const DELAY_MS = parseInt(process.env.RESOLVE_DELAY_MS || '2500');
 const LIMIT = parseInt(process.env.RESOLVE_LIMIT || '0');            // 0 = all
+const NAV_TIMEOUT = parseInt(process.env.NAV_TIMEOUT_MS || '45000');  // page-load budget
+const ATTEMPTS = parseInt(process.env.RESOLVE_ATTEMPTS || '2');       // retry transient timeouts
 if (!inFile) { console.error('usage: node resolve_names.js <timeline.json> [-o out.json]'); process.exit(2); }
 
 const outDir = path.dirname(outFile || inFile);
@@ -66,8 +68,9 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   for (const fid of todo) {
     const cid = cidOf(fid);
     const rec = { name: null, ftidMatch: false };
+    for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
     try {
-      await pg.goto(`https://www.google.com/maps?cid=${cid}&hl=en&gl=US`, { waitUntil: 'networkidle2', timeout: 45000 });
+      await pg.goto(`https://www.google.com/maps?cid=${cid}&hl=en&gl=US`, { waitUntil: 'networkidle2', timeout: NAV_TIMEOUT });
       await sleep(3000);
       const u = pg.url();
       rec.ftidMatch = u.toLowerCase().includes(fid.toLowerCase());
@@ -84,6 +87,10 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       if (!rec.name && /consent|before you continue/i.test(await pg.title()))
         rec.error = 'consent-wall (refresh cookie)';
     } catch (e) { rec.error = e.message.slice(0, 60); }
+      // retry only transient failures; a resolved (or genuinely nameless) place is final
+      if (rec.name || !/timeout|timed out|ERR_ABORTED|ERR_NETWORK/i.test(rec.error || '')) break;
+      if (attempt < ATTEMPTS) await sleep(3000);
+    }
     cache[fid] = rec;
     if (++done % 10 === 0 || done === todo.length) {
       fs.writeFileSync(cacheFile, JSON.stringify(cache, null, 1));

@@ -146,6 +146,25 @@ paths: a browser renderer (no API key) or the Places API (key).
 - `placeTypeCode` (#1000) is Google's numeric place-type taxonomy (restaurant/park/…)
   — hundreds of codes, no public mapping table shipped here; emitted raw.
 
+### Schema provenance
+
+The field numbering here was originally derived from the raw protobuf wire format, then
+cross-checked against **microG GmsCore's `segment.proto`** (Apache-2.0, [PR #3331](https://github.com/microg/GmsCore/pull/3331)),
+an independent clean-room definition of the same message. They agree on
+`LocationHistorySegmentProto{start_time=1, end_time=2, segment_data=3, is_deleted=4,
+segment_id=6, finalization_status=9, display_mode=10, source=11, metadata=12}`, on the
+`visit=1 / activity=2 / path=3` union, and on
+`PlaceCandidate{feature_id=1, semantic_type=2, probability=3, location=5}`.
+
+One documented disagreement: microG names fields **7/8** `hierarchy_level` /
+`finalization_state`. Observed data contradicts that — across a full dataset they are
+always *equal to each other* and only ever the local standard-time or DST offset,
+switching with the season. This decoder therefore reads them as start/end **UTC offset
+minutes**, which is also what makes the emitted timestamps line up with reality.
+
+Segments flagged `is_deleted` are **skipped** (you deleted them; they shouldn't reappear
+in an export). Pass `--include-deleted` to keep them.
+
 ### Other decoding notes
 
 - `timelinePath` buckets carry no UTC offset in the store; each inherits the nearest
@@ -378,6 +397,7 @@ services or deleting the volume destroys it; re-import to rebuild.
 - `travel_mode.py` — deterministic travel-mode / modal-split analyzer.
 - `package.json` — node dep (`puppeteer-core`) for `resolve_names.js`.
 - `sample-output.json` — synthetic example of the output schema.
+- `docs/microg-path.md` — research notes on replacing the redroid stack with microG (not built).
 - `.gitignore` — keeps generated files and `node_modules/` out of the repo.
 - `LICENSE` — MIT.
 - `.github/workflows/ci.yml` — CI: shell / python / node syntax checks.
