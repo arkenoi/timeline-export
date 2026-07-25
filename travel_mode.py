@@ -24,6 +24,8 @@ PLAUSIBLE = {
     "in passenger vehicle": (3, 170), "flying": (120, 1100), "unknown": (0, 1100),
 }
 
+def dt(s): return datetime.fromisoformat(s)
+
 def parse(fn):
     doc = json.load(open(fn))
     acts, trips = [], []
@@ -47,7 +49,9 @@ def parse(fn):
 
 def median(xs):
     xs = sorted(xs)
-    return xs[len(xs)//2] if xs else 0
+    if not xs: return 0
+    n = len(xs)
+    return xs[n//2] if n % 2 else (xs[n//2 - 1] + xs[n//2]) / 2
 
 def modal_split(acts):
     g = defaultdict(lambda: {"n": 0, "km": 0.0, "h": 0.0, "sp": []})
@@ -91,7 +95,8 @@ def report(fn, show_trips):
     if show_trips and trips:
         print("\nPER-TRIP MODE BREAKDOWN")
         for t in trips:
-            inside = [a for a in acts if t["start"] <= a["start"] <= t["end"]]
+            _s, _e = dt(t["start"]).timestamp(), dt(t["end"]).timestamp()
+            inside = [a for a in acts if _s <= dt(a["start"]).timestamp() <= _e]
             if not inside: continue
             by = defaultdict(float)
             for a in inside: by[a["mode"]] += a["km"]

@@ -19,7 +19,7 @@ OUT="${1:-out}"
 [ "$REIMPORT" = "1" ] && { echo "[*] refreshing backup…"; ./reimport.sh || echo "  (reimport unverified — continuing with on-device data)"; }
 
 echo "[*] decoding on-device Timeline…"
-./fetch_and_export.sh "$OUT" >/dev/null
+./fetch_and_export.sh "$OUT" >/dev/null || { echo "!! decode failed — not rebuilding records" >&2; exit 1; }
 
 if [ "${RESOLVE:-1}" = "1" ]; then
   if [ -n "${GOOGLE_MAPS_API_KEY:-}" ]; then

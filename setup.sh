@@ -34,7 +34,7 @@ APIKEY=""
 if [ "$RES" = "1" ]; then
   { command -v node >/dev/null && command -v npm >/dev/null && [ -n "$BROWSER" ]; } || { echo "  node/npm/chromium not all present → falling back to skip"; RES=3; }
 elif [ "$RES" = "2" ]; then
-  read -r -p "  Paste Google Maps Platform API key (Places API New): " APIKEY
+  read -r -s -p "  Paste Google Maps Platform API key (Places API New): " APIKEY; echo
   command -v python3 >/dev/null || RES=3
 fi
 CRON="$(ask 'Install nightly auto-refresh (reimport+export)? y/n' 'y')"
@@ -77,7 +77,7 @@ EOF
   echo "systemd unit redroid-stability@${CONTAINER} enabled"
 else
   chmod +x "$HERE/redroid/redroid-stability.sh"
-  pgrep -f "redroid-stability.sh" >/dev/null || RD_CONTAINER="$CONTAINER" nohup "$HERE/redroid/redroid-stability.sh" >/tmp/redroid-stability-$CONTAINER.log 2>&1 &
+  pgrep -af "redroid-stability.sh" 2>/dev/null | grep -q "RD_CONTAINER=$CONTAINER" || RD_CONTAINER="$CONTAINER" nohup "$HERE/redroid/redroid-stability.sh" >/tmp/redroid-stability-$CONTAINER.log 2>&1 &
   echo "supervisor running via nohup (no systemd --user); log /tmp/redroid-stability-$CONTAINER.log"
 fi
 
@@ -143,7 +143,7 @@ esac
 if [ "${CRON:0:1}" = "y" ] || [ "${CRON:0:1}" = "Y" ]; then
   say "Nightly auto-refresh"
   LINE="30 3 * * * cd $HERE && RD_CONTAINER=$CONTAINER ./export_all.sh --reimport >> out/refresh.log 2>&1"
-  ( crontab -l 2>/dev/null | grep -v 'timeline-export.*export_all'; echo "$LINE" ) | crontab - && echo "cron installed: refresh + comprehensive export nightly at 03:30"
+  ( crontab -l 2>/dev/null | grep -v 'export_all.sh'; echo "$LINE" ) | crontab - && echo "cron installed: refresh + comprehensive export nightly at 03:30"
 fi
 
 # ── done ───────────────────────────────────────────────────────────────────────────

@@ -60,6 +60,12 @@ def i32_e7(v):
 def f32(v):
     return struct.unpack('<f', struct.pack('<I', v))[0]
 
+def to_signed(v):
+    """Protobuf sign-extends negative int32/int64 to a 10-byte varint, so a negative
+    value arrives as a huge unsigned int. Western-hemisphere UTC offsets are negative —
+    without this, timezone(timedelta(minutes=huge)) raises and the segment is dropped."""
+    return v - (1 << 64) if v >= (1 << 63) else v
+
 import base64
 def chij_place_id(cell, fp):
     """FeatureId (cellId, fprint) -> standard Google Maps 'ChIJ...' placeId.
@@ -185,7 +191,19 @@ def dec_path(p, start_sec, offset_min):
         lats = _packed_e7(first(inner, 4))
         lngs = _packed_e7(first(inner, 5))
         off = first(inner, 6)
-        offs = list(off[1]) if (off and off[0] == 2) else []
+        # field 6 is one minute-offset per point. It is a packed varint array: values
+        # <128 are a single byte (the common case), larger ones use continuation bytes.
+        offs = []
+        if off and off[0] == 2:
+            bs = off[1]; k = 0
+            while k < len(bs):
+                v = 0; sh = 0
+                while k < len(bs):
+                    x = bs[k]; k += 1
+                    v |= (x & 0x7f) << sh
+                    if not (x & 0x80): break
+                    sh += 7
+                offs.append(v)
         m = min(len(lats), len(lngs))
         for k in range(m):
             e = {"point": latlng_str(lats[k], lngs[k])}
@@ -211,9 +229,10 @@ def build(db, include_paths=True):
         try:
             p = fields(blob)
             offs = first(p, 7); offe = first(p, 8)
-            off0 = offs[1] if offs else last_off
-            off1 = offe[1] if offe else off0
-            if offs: last_off = offs[1]
+            # signed: negative offsets (the Americas) arrive sign-extended
+            off0 = to_signed(offs[1]) if offs else last_off
+            off1 = to_signed(offe[1]) if offe else off0
+            if offs: last_off = off0
             st_s, st_ns = ts_of(submsg(p, 1))
             en_s, en_ns = ts_of(submsg(p, 2))
             st_s = st_s if st_s is not None else ts0
@@ -229,7 +248,8 @@ def build(db, include_paths=True):
             else: stats['other']+=1; continue
             segs.append(seg)
         except Exception as ex:
-            stats['err']+=1
+            stats['err'] += 1
+            print(f"  warn: segment {seg_id} (type {stype}) failed to decode: {ex}", file=sys.stderr)
             continue
     return segs, stats
 

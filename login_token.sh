@@ -20,7 +20,7 @@ dx(){ docker exec "$CONTAINER" sh -c "$*" 2>/dev/null; }
 dx 'dumpsys account' | grep -q 'type=com.google' && { echo "an account already exists — refusing (use ./login.sh to add another)"; exit 0; }
 command -v python3 >/dev/null || { echo "python3 required" >&2; exit 2; }
 command -v sqlite3 >/dev/null || { echo "host sqlite3 required (container's crashes on this DB)" >&2; exit 2; }
-python3 -c 'import gpsoauth' 2>/dev/null || { echo "installing gpsoauth…"; python3 -m pip install --quiet --user gpsoauth || { echo "pip install gpsoauth failed" >&2; exit 2; }; }
+python3 -c 'import gpsoauth' 2>/dev/null || { echo "installing gpsoauth…"; python3 -m pip install --quiet --user 'gpsoauth==1.1.1' || { echo "pip install gpsoauth failed" >&2; exit 2; }; }
 
 EMAIL="${GMAIL_USER:-}"; [ -z "$EMAIL" ] && read -r -p "  Email: " EMAIL
 APPPW="${GMAIL_APP_PASSWORD:-}"; [ -z "$APPPW" ] && { read -r -s -p "  App password: " APPPW; echo; }
@@ -40,9 +40,11 @@ PY
 unset APPPW
 
 echo "  registering the account (framework restart so AccountManager re-reads)…"
-META=$(dx "stat -c '%u %g %a' $DB"); read -r UID GID MODE <<<"$META"
+META=$(dx "stat -c '%u %g %a' $DB"); read -r DUID DGID DMODE <<<"$META"
 CTX=$(dx "ls -Z $DB 2>/dev/null" | awk '{print $1}')
-WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT
+WORK=$(mktemp -d)
+# always clean up AND restart the framework, even on failure
+trap 'rm -rf "$WORK"; dx "start" >/dev/null 2>&1 || true' EXIT
 
 dx 'stop'; sleep 4                                            # stop the framework
 docker exec "$CONTAINER" cat "$DB" > "$WORK/db"
@@ -51,7 +53,7 @@ umask 077; printf "INSERT OR REPLACE INTO accounts(name,type,password) VALUES('%
 unset MASTER
 sqlite3 "$WORK/db" < "$WORK/sql"
 docker exec -i "$CONTAINER" sh -c "cat > $DB" < "$WORK/db"
-dx "chown ${UID}:${GID} $DB; chmod ${MODE} $DB; { command -v restorecon >/dev/null && restorecon $DB; } || chcon '$CTX' $DB 2>/dev/null || true"
+dx "chown ${DUID}:${DGID} $DB; chmod ${DMODE} $DB; { command -v restorecon >/dev/null && restorecon $DB; } || chcon '$CTX' $DB 2>/dev/null || true"
 dx 'start'                                                    # start the framework
 
 echo "  waiting for boot + GMS to adopt the account…"

@@ -24,7 +24,10 @@ fi
 #    (docker cp fails on this image's overlay; docker exec cat is reliable.)
 echo "[*] pulling $DB_PATH ..."
 docker exec "$CONTAINER" sh -c "command -v sqlite3 >/dev/null && sqlite3 '$DB_PATH' 'PRAGMA wal_checkpoint(TRUNCATE);' >/dev/null 2>&1 || true"
-docker exec "$CONTAINER" cat "$DB_PATH" > "$OUTDIR/odlh-storage.db"
+# write to a temp file first: `>` would truncate the last-good copy if the pull fails
+docker exec "$CONTAINER" cat "$DB_PATH" > "$OUTDIR/.odlh-storage.db.tmp" \
+  && mv "$OUTDIR/.odlh-storage.db.tmp" "$OUTDIR/odlh-storage.db" \
+  || { rm -f "$OUTDIR/.odlh-storage.db.tmp"; echo "!! could not pull the DB from the container" >&2; exit 1; }
 for ext in -wal -shm; do
   docker exec "$CONTAINER" sh -c "test -f '${DB_PATH}${ext}' && cat '${DB_PATH}${ext}'" > "$OUTDIR/odlh-storage.db${ext}" 2>/dev/null || rm -f "$OUTDIR/odlh-storage.db${ext}"
 done

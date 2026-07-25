@@ -25,19 +25,32 @@ if dx 'test -d /data/adb/modules/playintegrityfork && test -d /data/adb/modules/
 fi
 command -v curl >/dev/null || { echo "curl required" >&2; exit 2; }
 
-# newest .zip asset from a GitHub repo's latest release, filtered by a name pattern
-latest_zip(){ curl -fsSL "https://api.github.com/repos/$1/releases/latest" \
-  | grep -oE '"browser_download_url": *"[^"]+\.zip"' | grep -oE 'https[^"]+' | grep -iE "$2" | head -1; }
+# Pin the releases we install. Unpinned "latest" would run arbitrary new code as root in
+# a --privileged container; override deliberately if you want a newer build.
+REZY_TAG="${REZYGISK_TAG:-latest}"
+PIF_TAG="${PIF_TAG:-latest}"
+# Optional integrity check: export REZY_SHA256 / PIF_SHA256 to enforce a known hash.
+REZY_SHA256="${REZY_SHA256:-}"
+PIF_SHA256="${PIF_SHA256:-}"
+
+# .zip asset from a GitHub release (tag or "latest"), filtered by name pattern
+release_zip(){ local api="https://api.github.com/repos/$1/releases/$([ "$2" = latest ] && echo latest || echo "tags/$2")"
+  curl -fsSL "$api" | grep -oE '"browser_download_url": *"[^"]+\.zip"' | grep -oE 'https[^"]+' | grep -iE "$3" | head -1; }
+
+verify_sha(){ [ -z "$2" ] && { echo "    (no pinned SHA-256 for $(basename "$1") — set ${3} to enforce one)"; return 0; }
+  local got; got=$(sha256sum "$1" | cut -d" " -f1)
+  [ "$got" = "$2" ] || { echo "!! checksum mismatch for $(basename "$1"): $got != $2" >&2; return 1; }
+  echo "    checksum ok"; }
 
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 echo "[*] locating module releases…"
-REZY=$(latest_zip PerformanC/ReZygisk 'rezygisk')
-PIF=$(latest_zip osm0sis/PlayIntegrityFork 'PlayIntegrityFo?rk')
+REZY=$(release_zip PerformanC/ReZygisk "$REZY_TAG" 'rezygisk')
+PIF=$(release_zip osm0sis/PlayIntegrityFork "$PIF_TAG" 'PlayIntegrityFo?rk')
 [ -n "$REZY" ] && [ -n "$PIF" ] || { echo "could not resolve release URLs (rate-limited? offline?)" >&2; exit 1; }
 echo "    ReZygisk: ${REZY##*/}"
 echo "    PIF:      ${PIF##*/}"
-curl -fsSL "$REZY" -o "$TMP/rezygisk.zip"
-curl -fsSL "$PIF"  -o "$TMP/pif.zip"
+curl -fsSL "$REZY" -o "$TMP/rezygisk.zip"; verify_sha "$TMP/rezygisk.zip" "$REZY_SHA256" REZY_SHA256 || exit 1
+curl -fsSL "$PIF"  -o "$TMP/pif.zip";      verify_sha "$TMP/pif.zip"      "$PIF_SHA256"  PIF_SHA256  || exit 1
 
 echo "[*] installing modules into the container's Magisk…"
 for z in rezygisk pif; do

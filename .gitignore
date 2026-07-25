@@ -11,7 +11,7 @@ odlh-storage.db*
 Timeline*.json
 !sample-output.json
 # resolved place-name cache (real place names/addresses) — never commit
-place_cache.json
+place_cache*.json
 # a container /data volume must never live in the repo tree (holds account tokens)
 rd_data/
 rd-data/

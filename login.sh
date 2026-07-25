@@ -15,7 +15,10 @@ set -uo pipefail
 CONTAINER="${RD_CONTAINER:-rd}"
 dx(){ docker exec "$CONTAINER" sh -c "$*" 2>/dev/null; }
 tap(){ docker exec "$CONTAINER" input tap $1 2>/dev/null; }
-typetext(){ docker exec "$CONTAINER" input text "$(printf '%s' "$1" | sed 's/ /%s/g')" 2>/dev/null; }
+# feed text via stdin so the password never appears in argv (ps / /proc/<pid>/cmdline).
+# Android `input text` needs %s for spaces; other chars are passed through as-is.
+typetext(){ printf '%s' "$1" | sed 's/ /%s/g' \
+  | docker exec -i "$CONTAINER" sh -c 'read -r t; input text "$t"' 2>/dev/null; }
 signed_in(){ dx 'dumpsys account' | grep -q 'type=com.google'; }
 
 FIELD_INPUT="360 632"   # the text field on the sign-in screen (email, then password)

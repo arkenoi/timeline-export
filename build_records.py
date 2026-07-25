@@ -17,6 +17,13 @@ from collections import defaultdict, Counter
 
 # ---------- location parsing (from Google's formatted address) ----------
 _POSTAL = re.compile(r'^([A-Za-z]{1,3}[- ]?)?(\d{3,6})\s+(.+)$')
+# trailing postcode: US 94043 / US ZIP+4 / UK 'NW1 6XE' / JP '100-0001' / CA 'K1A 0B1'
+_POSTAL_TRAIL = re.compile(
+    r'^(.*?)[, ]\s*('
+    r'[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z][A-Z\d]'  # UK 'NW1 6XE' / CA 'M5E 1E5'
+    r'|\d{3}-\d{4}'                            # JP
+    r'|[A-Z]{0,2}[- ]?\d{4,6}(?:-\d{4})?'       # US/EU numeric (+ZIP+4)
+    r')$', re.IGNORECASE)
 
 def parse_location(addr):
     """'123 Main St, 90210 Springfield, Exampleland' -> {town:Springfield, country:Exampleland, postalCode:90210}"""
@@ -28,9 +35,18 @@ def parse_location(addr):
     loc = {"country": parts[-1]}
     if len(parts) >= 2:
         cand = parts[-2]
-        m = _POSTAL.match(cand)
+        m = _POSTAL.match(cand)                       # "90210 Springfield"  (postcode first)
+        m_us = _POSTAL_TRAIL.match(cand)              # "CA 90210" / "Springfield 90210"
         if m:
             loc["postalCode"] = m.group(2); loc["town"] = m.group(3).strip()
+        elif m_us:
+            loc["postalCode"] = m_us.group(2)
+            head = m_us.group(1).strip()
+            # "CA 90210" -> state only; the real city is the preceding component
+            if len(head) <= 3 and len(parts) >= 3:
+                loc["adminArea"] = head; loc["town"] = parts[-3]
+            else:
+                loc["town"] = head or (parts[-3] if len(parts) >= 3 else None)
         else:
             loc["town"] = cand
     return loc
@@ -124,9 +140,11 @@ def build(infile, outfile):
         if "trip" not in s:
             continue
         t0, t1 = s["startTime"], s["endTime"]
-        inV = [v for v in visits if t0 <= v["startTime"] <= t1]
-        inA = [a for a in acts if t0 <= a["startTime"] <= t1]
-        inP = [p for p in paths if t0 <= p["startTime"] <= t1]
+        e0, e1 = dt(t0).timestamp(), dt(t1).timestamp()
+        # compare instants, not ISO strings: offsets differ across a timezone-crossing trip
+        inV = [v for v in visits if e0 <= dt(v["startTime"]).timestamp() <= e1]
+        inA = [a for a in acts if e0 <= dt(a["startTime"]).timestamp() <= e1]
+        inP = [p for p in paths if e0 <= dt(p["startTime"]).timestamp() <= e1]
 
         # destination = town with most dwell among trip visits, excluding home town
         dwell = defaultdict(float); place_hours = defaultdict(lambda: {"h": 0.0, "n": 0, "town": None})
@@ -178,8 +196,8 @@ def build(infile, outfile):
 
     # 3b. rich transportation segments (movements): link each activity to the visit
     #     before (origin) and after (destination), and attach its own GPS route.
-    vis_sorted = sorted(visits, key=lambda v: v["startTime"])
-    _vstart = [v["startTime"] for v in vis_sorted]
+    vis_sorted = sorted(visits, key=lambda v: dt(v["startTime"]).timestamp())
+    _vstart = [dt(v["startTime"]).timestamp() for v in vis_sorted]
     def brief(v):
         tc = v["visit"].get("topCandidate", {})
         return {k: val for k, val in {
@@ -187,10 +205,10 @@ def build(infile, outfile):
             "latLng": tc.get("placeLocation", {}).get("latLng"),
             "semanticType": tc.get("semanticType")}.items() if val is not None}
     def prev_visit(t):
-        i = bisect.bisect_right(_vstart, t) - 1
+        i = bisect.bisect_right(_vstart, dt(t).timestamp()) - 1
         return vis_sorted[i] if i >= 0 else None
     def next_visit(t):
-        i = bisect.bisect_left(_vstart, t)
+        i = bisect.bisect_left(_vstart, dt(t).timestamp())
         return vis_sorted[i] if i < len(vis_sorted) else None
 
     movements = []

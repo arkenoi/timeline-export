@@ -1,8 +1,9 @@
 # timeline-export
 
-Reliable, **headless, reproducible** export of a Google Maps Timeline (the 2024+
+**Headless, reproducible** export of a Google Maps Timeline (the 2024+
 on-device "Location History") to JSON — decoded directly from the device's
-`odlh-storage.db`, with **no UI clicking** and no network.
+`odlh-storage.db`, with no network. (Decoding and analysis are pure file reads; only the one-off
+backup *import* drives the Maps UI.)
 
 Runs against a redroid Android container. The point of the project: recover Google's
 own **`placeId`** for every visit — Google's building-level place match that raw GPS
@@ -41,7 +42,8 @@ binder/ashmem. Options off Linux:
 - or skip the container entirely and point the **processing half** at an
   `odlh-storage.db` pulled from *any* Linux redroid or a rooted Android phone —
   `odlh_export.py` / `resolve_names.js` / `place_names.py` / `travel_mode.py` are pure
-  Python/Node and run natively on macOS/Windows/Linux.
+  Python/Node and run natively on macOS/Windows/Linux (set `CHROME_PATH` for the browser
+  resolver — it defaults to a Linux chromium path).
 
 ## Usage
 
@@ -152,8 +154,9 @@ paths: a browser renderer (no API key) or the Places API (key).
 - `durationMinutesOffsetFromStartTime` is one byte per point; treated as minutes from
   the bucket start. A few large values suggest the unit isn't always plain minutes —
   the **points themselves are exact**, the per-point time is approximate.
-- Self-check printed by `--stats`: per-type counts and `errors=0`. The decoder also
-  keeps coordinates as signed E7 so out-of-region data would show up as wild lat/lng.
+- `--stats` prints per-type counts plus `errors` (decode failures are also logged to
+  stderr). Note a blob that parses but is empty still counts as decoded, so `errors=0`
+  means "nothing threw", not "everything was rich".
 
 ## Resolving place names
 
@@ -259,7 +262,7 @@ Sign in to **your own existing** Google account (it never creates one) — autom
 ./login.sh          # prompts for email + password; setup.sh runs this for you
 ```
 
-The user does three things: type email, type password, and approve the "is it you?"
+The user types email and password and approves the "is it you?"
 prompt on their phone (Google's 2-step gate). The script drives the on-device sign-in
 itself — **no adb or scrcpy**. Credentials come from the prompt or `$GMAIL_USER` /
 `$GMAIL_PASS`.
@@ -288,9 +291,9 @@ is a fixed sequence of taps, so it scripts deterministically:
 `reimport.sh` launches the Timeline deep link and taps the fixed targets
 (cloud icon → device ⋮ → Import → confirm), then **verifies success by watching
 GMS's own log** (`LocationHistory: [BackupRunner] … restored` /
-`[BackupPreprocessor] inserting N segments`). It reports how many new segments came
-in and exits non-zero if it can't confirm — so a missed tap fails loudly and retries
-rather than silently doing nothing. Cron it daily (phones back up ~daily):
+`[BackupPreprocessor] inserting N segments`). It reports how many new segments came in and exits non-zero if it never sees a
+`BackupRunner` line. Caveat: a run that reaches the log but imports nothing reports
+OK with `inserted=0` — check that number, not just the exit code. Cron it daily (phones back up ~daily):
 
 ```cron
 # refresh timeline + export every night at 03:30 (log is git-ignored)
@@ -364,7 +367,8 @@ services or deleting the volume destroys it; re-import to rebuild.
 - `build_records.py` — deterministic builder: enriched visits + rich trip records.
 - `redroid/redroid-stability.sh` — host supervisor (lmkd watchdog + display keep-awake).
 - `redroid/99-redroid-stability.sh` — in-container Magisk boot script (persistent half).
-- `redroid/play_integrity.sh` — installs ReZygisk + PlayIntegrityFork so GMS/sign-in pass Play Integrity.
+- `redroid/play_integrity.sh` — installs ReZygisk + PlayIntegrityFork (aims at Play
+  Integrity BASIC; the script cannot verify the verdict itself).
 - `odlh_export.py` — the decoder (stdlib-only protobuf reader → JSON).
 - `fetch_and_export.sh` — pull DB from container + decode. Export entry point.
 - `reimport.sh` — headless re-import of the cloud backup (fixed taps + GMS-log verify).

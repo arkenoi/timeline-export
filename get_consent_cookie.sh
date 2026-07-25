@@ -16,8 +16,9 @@ if ! grep -qi 'consent.google.com/save' "$TMP"; then
   echo -e ".google.com\tTRUE\t/\tTRUE\t0\tSOCS\tCAI" >> "$JAR"
   echo "no consent wall on this IP; wrote placeholder -> $JAR"; rm -f "$TMP"; exit 0
 fi
-ESCS=$(grep -oiE 'name="escs" value="[^"]*"' "$TMP" | head -1 | sed -E 's/.*value="([^"]*)".*/\1/')
-BL=$(grep -oiE 'name="bl" value="[^"]*"' "$TMP" | head -1 | sed -E 's/.*value="([^"]*)".*/\1/')
+ESCS=$(grep -oiE 'name="escs" value="[^"]*"' "$TMP" | head -1 | sed -E 's/.*value="([^"]*)".*/\1/') || true
+BL=$(grep -oiE 'name="bl" value="[^"]*"' "$TMP" | head -1 | sed -E 's/.*value="([^"]*)".*/\1/') || true
+[ -z "$ESCS" ] && { echo "consent form changed (no escs field) — resolution may hit the consent wall" >&2; rm -f "$TMP"; exit 1; }
 curl -s -c "$JAR" -b "$JAR" -A "$UA" -L \
   --data-urlencode gl=US --data-urlencode m=0 --data-urlencode app=0 --data-urlencode pc=m \
   --data-urlencode "continue=$PROBE" --data-urlencode x=6 --data-urlencode "bl=$BL" \
