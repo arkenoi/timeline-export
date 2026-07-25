@@ -251,25 +251,28 @@ Google misclassifications and GPS-jitter artifacts — it's how the `code 7 = ve
 cycling` label was pinned). Mode labels: `2/5/29` are speed-verified (walking/flying/
 vehicle); the rest are best-effort over Google's raw enum, and `typeCode` is always kept.
 
-## Login (one-time, manual — do NOT automate)
+## Login (`login.sh`)
 
-Sign in to **your own** Google account inside your container, interactively, once:
+Sign in to **your own existing** Google account (it never creates one) — automated:
 
 ```bash
-adb shell am start -a android.settings.ADD_ACCOUNT_SETTINGS --es account_types com.google
+./login.sh          # prompts for email + password; setup.sh runs this for you
 ```
 
-then complete the sign-in on the device screen (via `scrcpy localhost:5555` or the
-redroid display), and make sure Google Maps is installed.
+The user does three things: type email, type password, and approve the "is it you?"
+prompt on their phone (Google's 2-step gate). The script drives the on-device sign-in
+itself — **no adb or scrcpy**. Credentials come from the prompt or `$GMAIL_USER` /
+`$GMAIL_PASS`.
 
-Login is deliberately **not scripted**: it goes through a WebView with 2FA/passkey and
-Google's abuse detection, so automating keystrokes is fragile and can get your account
-flagged. It's a once-per-container manual step.
+Caveat: Google challenges automated sign-in on rooted / non-Play-certified devices
+(redroid is both), so a CAPTCHA is possible. `login.sh` verifies the result and reports
+if it couldn't confirm; if Google throws a challenge, clear it once on the device and
+re-run. (`login_token.sh` is an **experimental** WebView-free path: it fetches a Google master
+token from an app-password and injects the account — no CAPTCHA, but modern full GMS may
+reject a manually-added account. Try it if the WebView keeps failing.)
 
-Where credentials live: the account and its OAuth tokens are stored by Google Play
-services **inside the container's `/data` volume** (accounts DB + GMS token stores) —
-**never in this repo**. Treat that volume like a secret: don't commit it, don't publish
-the image or a snapshot of it.
+The account and its OAuth tokens live in the container's `/data` volume, never in this
+repo — so don't publish a snapshot of that volume.
 
 ## Refreshing the data (headless, no LLM) — `reimport.sh`
 
@@ -356,6 +359,7 @@ services or deleting the volume destroys it; re-import to rebuild.
 
 - `setup.sh` — one-shot bring-up of the whole pipeline on a clean machine.
 - `login.sh` — best-effort automated Google sign-in for a fresh container (optional).
+- `login_token.sh` — experimental WebView-free sign-in via a Google master token.
 - `export_all.sh` — one command: decode → resolve names → comprehensive records.
 - `build_records.py` — deterministic builder: enriched visits + rich trip records.
 - `redroid/redroid-stability.sh` — host supervisor (lmkd watchdog + display keep-awake).

@@ -97,14 +97,14 @@ say "Sign in to your Google account"
 if docker exec "$CONTAINER" dumpsys account 2>/dev/null | grep -q 'type=com.google'; then
   echo "a Google account is already signed in — good"
 else
-  LOGIN="$(ask 'Sign in: [a]utomated (enter credentials) or [m]anual on-screen?' 'a')"
-  if [ "${LOGIN:0:1}" = "a" ] || [ "${LOGIN:0:1}" = "A" ]; then
-    RD_CONTAINER="$CONTAINER" ./login.sh || echo "  automated login not confirmed — you can finish it on screen, then continue"
-  else
-    docker exec "$CONTAINER" am start -a android.settings.ADD_ACCOUNT_SETTINGS --es account_types com.google >/dev/null 2>&1 || true
-    echo "  Complete the sign-in on the device (scrcpy localhost:$PORT, or the redroid display)."
-    read -r -p "  Press Enter once you are signed in... " _
-  fi
+  LOGIN="$(ask 'Sign in: [a]utomated (email+password), [t]oken (experimental, app-password), or [m]anual?' 'a')"
+  case "${LOGIN:0:1}" in
+    t|T) RD_CONTAINER="$CONTAINER" ./login_token.sh || echo "  token path didn't take — try ./login.sh" ;;
+    m|M) docker exec "$CONTAINER" am start -a android.settings.ADD_ACCOUNT_SETTINGS --es account_types com.google >/dev/null 2>&1 || true
+         echo "  Complete the sign-in on the device (its display, or scrcpy)."
+         read -r -p "  Press Enter once you are signed in... " _ ;;
+    *)   RD_CONTAINER="$CONTAINER" ./login.sh || echo "  automated login not confirmed — finish on screen, then continue" ;;
+  esac
   docker exec "$CONTAINER" dumpsys account 2>/dev/null | grep -q 'type=com.google' \
     || echo "  (warning: no Google account detected yet — continuing anyway)"
   echo "  Make sure Google Maps is installed (Play Store) and Timeline is on."
