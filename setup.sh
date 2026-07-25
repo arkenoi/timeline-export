@@ -92,20 +92,22 @@ echo "booted"
 docker exec "$CONTAINER" sh -c 'test -s /data/adb/magisk/busybox || cp /system/etc/init/magisk/busybox /data/adb/magisk/busybox 2>/dev/null; chmod 755 /data/adb/magisk/busybox 2>/dev/null' || true
 docker exec -i "$CONTAINER" sh -c 'cat > /data/adb/service.d/99-redroid-stability.sh && chmod 755 /data/adb/service.d/99-redroid-stability.sh' < "$HERE/redroid/99-redroid-stability.sh" && echo "installed in-container boot script"
 
-# ── 5. Google sign-in (manual — cannot be automated safely) ────────────────────────
+# ── 5. Google sign-in (your existing account) ──────────────────────────────────────
 say "Sign in to your Google account"
 if docker exec "$CONTAINER" dumpsys account 2>/dev/null | grep -q 'type=com.google'; then
   echo "a Google account is already signed in — good"
 else
-  docker exec "$CONTAINER" am start -a android.settings.ADD_ACCOUNT_SETTINGS --es account_types com.google >/dev/null 2>&1 || true
-  cat <<EOF
-  On the device screen (use 'scrcpy localhost:$PORT', or the redroid display):
-    1. complete the Google sign-in that just opened (email, password, 2FA)
-    2. make sure Google Maps is installed (Play Store) and Timeline is on
-  This step is manual on purpose: automating the login WebView risks flagging your account.
-EOF
-  read -r -p "  Press Enter once you are signed in and Maps is installed... " _
-  docker exec "$CONTAINER" dumpsys account 2>/dev/null | grep -q 'type=com.google' || echo "  (warning: no Google account detected yet — continuing anyway)"
+  LOGIN="$(ask 'Sign in: [a]utomated (enter credentials) or [m]anual on-screen?' 'a')"
+  if [ "${LOGIN:0:1}" = "a" ] || [ "${LOGIN:0:1}" = "A" ]; then
+    RD_CONTAINER="$CONTAINER" ./login.sh || echo "  automated login not confirmed — you can finish it on screen, then continue"
+  else
+    docker exec "$CONTAINER" am start -a android.settings.ADD_ACCOUNT_SETTINGS --es account_types com.google >/dev/null 2>&1 || true
+    echo "  Complete the sign-in on the device (scrcpy localhost:$PORT, or the redroid display)."
+    read -r -p "  Press Enter once you are signed in... " _
+  fi
+  docker exec "$CONTAINER" dumpsys account 2>/dev/null | grep -q 'type=com.google' \
+    || echo "  (warning: no Google account detected yet — continuing anyway)"
+  echo "  Make sure Google Maps is installed (Play Store) and Timeline is on."
 fi
 
 # ── 6. import the Timeline backup + first export ───────────────────────────────────

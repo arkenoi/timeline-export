@@ -21,8 +21,9 @@ git clone <this repo> && cd timeline-export
 
 `setup.sh` is idempotent and does the whole bring-up: checks tools, starts a
 resolution-pinned redroid container, installs the lmkd/display stability fixes (host
-supervisor + in-container Magisk boot script + busybox), waits for boot, **pauses for you
-to sign into Google** (the one manual step), imports your Timeline backup, runs the first
+supervisor + in-container Magisk boot script + busybox), waits for boot, signs you into
+Google (automated with your credentials, or manually on-screen), imports your Timeline
+backup, runs the first
 export, optionally resolves place names, and optionally installs a nightly refresh. It
 asks three things: container name, name-resolution method (browser / API key / skip), and
 whether to install the cron. Re-run it any time — it detects and reuses existing state.
@@ -354,6 +355,7 @@ services or deleting the volume destroys it; re-import to rebuild.
 ## Files
 
 - `setup.sh` — one-shot bring-up of the whole pipeline on a clean machine.
+- `login.sh` — best-effort automated Google sign-in for a fresh container (optional).
 - `export_all.sh` — one command: decode → resolve names → comprehensive records.
 - `build_records.py` — deterministic builder: enriched visits + rich trip records.
 - `redroid/redroid-stability.sh` — host supervisor (lmkd watchdog + display keep-awake).
