@@ -103,6 +103,15 @@ def iso(seconds, nanos, offset_min):
     return dt.strftime('%Y-%m-%dT%H:%M:%S') + z[:3] + ':' + z[3:]
 
 # ---------- per-type decoders ----------
+# Schema cross-checked against microG's segment.proto (Apache-2.0, GmsCore PR #3331):
+# LocationHistorySegmentProto{start_time=1, end_time=2, segment_data=3, is_deleted=4,
+# segment_id=6, ...=7, ...=8, finalization_status=9, display_mode=10, source=11, metadata=12}
+# and PlaceCandidate{feature_id=1, semantic_type=2, probability=3, location=5} — all matching
+# what this decoder derived independently from the wire bytes.
+# DISCREPANCY: microG names fields 7/8 hierarchy_level/finalization_state. Real data contradicts
+# that — across 4490 segments they are always EQUAL and only ever 120 or 180, tracking the local
+# DST switch, i.e. they are start/end UTC offsets in minutes. We keep the offset reading.
+#
 # semanticType enum -> label. Code 1=HOME is confirmed (its location matches the
 # on-device HOME alias in gmm_myplaces.db, sync_item key "0:0"). Others are best-effort:
 #  0 = inferred/unknown (the bulk of visits); 4 = a frequently-inferred place that is
@@ -215,12 +224,12 @@ def dec_trip(p, seg_id):
     return {"trip": {"name": seg_id}}
 
 # ---------- main ----------
-def build(db, include_paths=True):
+def build(db, include_paths=True, include_deleted=False):
     con = sqlite3.connect(db)
     rows = con.execute(
         "SELECT segment_id, segment_type, start_timestamp_seconds, end_timestamp_seconds, semantic_segment "
         "FROM semantic_segment_table ORDER BY start_timestamp_seconds").fetchall()
-    segs = []; stats = {1:0,2:0,3:0,4:0,'err':0,'other':0}
+    segs = []; stats = {1:0,2:0,3:0,4:0,'err':0,'other':0,'deleted':0}
     # timelinePath rows store no UTC offset; carry the nearest neighbour's. Seed with
     # +120 (a standard-time offset — set to your timezone) so leading path rows aren't emitted as UTC; the first
     # offset-bearing row overwrites it.
@@ -237,8 +246,17 @@ def build(db, include_paths=True):
             en_s, en_ns = ts_of(submsg(p, 2))
             st_s = st_s if st_s is not None else ts0
             en_s = en_s if en_s is not None else ts1
+            # field 4 = is_deleted: never export a segment the user deleted
+            deleted = first(p, 4)
+            if deleted and deleted[0] == 0 and deleted[1] and not include_deleted:
+                stats['deleted'] += 1
+                continue
             seg = {"startTime": iso(st_s, st_ns, off0), "endTime": iso(en_s, en_ns, off1),
                    "startTimeTimezoneUtcOffsetMinutes": off0, "endTimeTimezoneUtcOffsetMinutes": off1}
+            # named fields from microG's segment.proto that we previously discarded
+            for fnum, name in ((9, "finalizationStatus"), (10, "displayMode"), (11, "source")):
+                v = first(p, fnum)
+                if v and v[0] == 0: seg[name] = v[1]
             if stype == 1: seg.update(dec_visit(p)); stats[1]+=1
             elif stype == 2: seg.update(dec_activity(p)); stats[2]+=1
             elif stype == 3:
@@ -259,8 +277,9 @@ if __name__ == "__main__":
     ap.add_argument("-o", "--out", default="-")
     ap.add_argument("--no-paths", action="store_true", help="omit high-volume timelinePath segments")
     ap.add_argument("--stats", action="store_true")
+    ap.add_argument("--include-deleted", action="store_true", help="also emit segments flagged is_deleted")
     a = ap.parse_args()
-    segs, stats = build(a.db, include_paths=not a.no_paths)
+    segs, stats = build(a.db, include_paths=not a.no_paths, include_deleted=a.include_deleted)
     doc = {"semanticSegments": segs}
     out = json.dumps(doc, ensure_ascii=False, indent=2)
     if a.out == "-": sys.stdout.write(out + "\n")
@@ -268,4 +287,5 @@ if __name__ == "__main__":
         open(a.out, "w").write(out)
         print(f"wrote {a.out}: {len(segs)} segments", file=sys.stderr)
     if a.stats:
-        print(f"stats: visits={stats[1]} activities={stats[2]} paths={stats[3]} trips={stats[4]} errors={stats['err']}", file=sys.stderr)
+        print(f"stats: visits={stats[1]} activities={stats[2]} paths={stats[3]} trips={stats[4]} "
+              f"other={stats['other']} deleted-skipped={stats['deleted']} errors={stats['err']}", file=sys.stderr)
