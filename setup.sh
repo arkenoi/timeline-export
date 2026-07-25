@@ -92,6 +92,18 @@ echo "booted"
 docker exec "$CONTAINER" sh -c 'test -s /data/adb/magisk/busybox || cp /system/etc/init/magisk/busybox /data/adb/magisk/busybox 2>/dev/null; chmod 755 /data/adb/magisk/busybox 2>/dev/null' || true
 docker exec -i "$CONTAINER" sh -c 'cat > /data/adb/service.d/99-redroid-stability.sh && chmod 755 /data/adb/service.d/99-redroid-stability.sh' < "$HERE/redroid/99-redroid-stability.sh" && echo "installed in-container boot script"
 
+# ── 4b. Play Integrity (makes GMS / Google sign-in behave like a real device) ──────
+say "Play Integrity"
+if docker exec "$CONTAINER" sh -c 'test -d /data/adb/modules/playintegrityfork' 2>/dev/null; then
+  echo "already installed"
+else
+  PI="$(ask 'Install Play Integrity Fix (ReZygisk + PlayIntegrityFork)? recommended for reliable sign-in y/n' 'y')"
+  case "${PI:0:1}" in
+    y|Y) RD_CONTAINER="$CONTAINER" ./redroid/play_integrity.sh || echo "  Play Integrity install had issues — continuing (sign-in may hit more challenges)" ;;
+    *)   echo "  skipped — sign-in may get more CAPTCHAs on this rooted/uncertified device" ;;
+  esac
+fi
+
 # ── 5. Google sign-in (your existing account) ──────────────────────────────────────
 say "Sign in to your Google account"
 if docker exec "$CONTAINER" dumpsys account 2>/dev/null | grep -q 'type=com.google'; then

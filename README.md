@@ -364,6 +364,7 @@ services or deleting the volume destroys it; re-import to rebuild.
 - `build_records.py` — deterministic builder: enriched visits + rich trip records.
 - `redroid/redroid-stability.sh` — host supervisor (lmkd watchdog + display keep-awake).
 - `redroid/99-redroid-stability.sh` — in-container Magisk boot script (persistent half).
+- `redroid/play_integrity.sh` — installs ReZygisk + PlayIntegrityFork so GMS/sign-in pass Play Integrity.
 - `odlh_export.py` — the decoder (stdlib-only protobuf reader → JSON).
 - `fetch_and_export.sh` — pull DB from container + decode. Export entry point.
 - `reimport.sh` — headless re-import of the cloud backup (fixed taps + GMS-log verify).
