@@ -1,0 +1,31 @@
+# ---- runtime / personal data — NEVER commit ----
+# generated exports + the pulled location-history DB (your home/work, movements)
+out/
+# any location-history DB anywhere in the tree
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+odlh-storage.db*
+# exported timelines (real coordinates) — but keep the synthetic sample
+Timeline*.json
+!sample-output.json
+# resolved place-name cache (real place names/addresses) — never commit
+place_cache.json
+# a container /data volume must never live in the repo tree (holds account tokens)
+rd_data/
+rd-data/
+data/
+# logs, screenshots, scratch
+*.log
+*.png
+*.xml
+
+# ---- tooling noise ----
+__pycache__/
+*.pyc
+.venv/
+.DS_Store
+
+# node deps for the browser resolver (puppeteer-core)
+node_modules/

@@ -1,0 +1,9 @@
+{
+  "name": "timeline-export",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Headless export + name-resolution of on-device Google Maps Timeline",
+  "dependencies": {
+    "puppeteer-core": "^25.0.0"
+  }
+}

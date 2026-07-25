@@ -1,0 +1,19 @@
+name: guard
+on: [push, pull_request]
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Shell syntax (bash -n)
+        run: for f in $(git ls-files '*.sh'); do echo "  $f"; bash -n "$f"; done
+
+      - name: Python compile
+        run: for f in $(git ls-files '*.py'); do echo "  $f"; python3 -m py_compile "$f"; done
+
+      - name: Node syntax (--check)
+        run: for f in $(git ls-files '*.js'); do echo "  $f"; node --check "$f"; done

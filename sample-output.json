@@ -1,0 +1,65 @@
+{
+  "semanticSegments": [
+    {
+      "startTime": "2025-01-02T09:15:00.000+02:00",
+      "endTime": "2025-01-02T17:40:00.000+02:00",
+      "startTimeTimezoneUtcOffsetMinutes": 120,
+      "endTimeTimezoneUtcOffsetMinutes": 120,
+      "visit": {
+        "probability": 0.83,
+        "topCandidate": {
+          "placeLocation": {
+            "latLng": "12.3456789°, 98.7654321°"
+          },
+          "semanticType": "HOME",
+          "semanticTypeCode": 1,
+          "placeTypeCode": 100,
+          "probability": 0.71,
+          "placeId": "ChIJERERERERERERIiIiIiIiIiI",
+          "placeUrl": "https://www.google.com/maps/place/?q=place_id:ChIJERERERERERERIiIiIiIiIiI",
+          "featureId": "0x1111111111111111:0x2222222222222222"
+        }
+      }
+    },
+    {
+      "startTime": "2025-01-02T17:40:00.000+02:00",
+      "endTime": "2025-01-02T18:05:00.000+02:00",
+      "startTimeTimezoneUtcOffsetMinutes": 120,
+      "endTimeTimezoneUtcOffsetMinutes": 120,
+      "activity": {
+        "start": {
+          "latLng": "12.3456789°, 98.7654321°"
+        },
+        "end": {
+          "latLng": "12.3500000°, 98.7700000°"
+        },
+        "distanceMeters": 642.5
+      }
+    },
+    {
+      "startTime": "2025-01-02T18:00:00.000+02:00",
+      "endTime": "2025-01-02T20:00:00.000+02:00",
+      "startTimeTimezoneUtcOffsetMinutes": 120,
+      "endTimeTimezoneUtcOffsetMinutes": 120,
+      "timelinePath": [
+        {
+          "point": "12.3480000°, 98.7680000°",
+          "durationMinutesOffsetFromStartTime": "3"
+        },
+        {
+          "point": "12.3490000°, 98.7690000°",
+          "durationMinutesOffsetFromStartTime": "7"
+        }
+      ]
+    },
+    {
+      "startTime": "2025-01-05T07:52:58.000+02:00",
+      "endTime": "2025-01-08T19:03:08.000+02:00",
+      "startTimeTimezoneUtcOffsetMinutes": 120,
+      "endTimeTimezoneUtcOffsetMinutes": 120,
+      "trip": {
+        "name": "trip_1767592378"
+      }
+    }
+  ]
+}
