@@ -19,26 +19,28 @@ pip install 'httpx[http2]' cryptography gpsoauth
 # 1. sign in normally (2FA and all) at:
 #    https://accounts.google.com/embedded/setup/android?source=com.google.android.gms&xoauth_display_name=Android%20Device
 #    then copy the `oauth_token` cookie for accounts.google.com (starts with "oauth2_4/")
-python3 get_token.py --email you@example.com --android-id <16 hex> \
+python3 get_token.py --email you@example.com \
   --oauth-token-file oauth.txt --save-master ~/timeline-data/master.txt \
   --out ~/timeline-data/tok.txt
 
 # 2. one-time: fetch the decryption key with a browser (answer the password prompt)
-python3 web_key.py --email you@example.com --android-id <16 hex> \
+python3 web_key.py --email you@example.com \
   --master-token-file ~/timeline-data/master.txt --headful -o ~/timeline-data/key.b64
 
 # 3. fetch + decode + build records
 ./export_all.sh --cloud
 ```
 
-`--android-id` is any 16-hex device id the token is bound to; if you have an Android
-device to hand, `adb shell settings get secure android_id` gives you one.
+No `--android-id` needed: the tokens bind to a 64-bit id, and one is generated on first
+run and saved to `$TIMELINE_OUT/android_id` for reuse. Keep that file — every later token
+exchange must present the same value. Pass `--android-id` explicitly only if you want to
+bind to a device you already own.
 
 Afterwards only step 3 is routine. The bearer from step 1 lasts about an hour and is
 refreshed from the saved master token without the browser:
 
 ```bash
-python3 get_token.py --email you@example.com --android-id <16 hex> \
+python3 get_token.py --email you@example.com \
   --master-token-file ~/timeline-data/master.txt --out ~/timeline-data/tok.txt
 ```
 

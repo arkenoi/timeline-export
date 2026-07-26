@@ -31,7 +31,29 @@ Usage:
   # --enroll  attempts INITIAL_ENROLLMENT instead of key retrieval
   # --headful renders a real window so you can complete any challenge yourself
 """
-import argparse, base64, json, os, subprocess, sys, urllib.parse, uuid
+import argparse, base64, json, os, secrets, subprocess, sys, urllib.parse, uuid
+
+def resolve_android_id(explicit=None, path=None):
+    """Same id get_token.py uses — generated once and persisted, so no Android device is
+    needed. Both tools must present the SAME value for the tokens to line up."""
+    if explicit:
+        return explicit.strip().lower()
+    path = path or os.path.join(
+        os.environ.get("TIMELINE_OUT", os.path.expanduser("~/timeline-data")), "android_id")
+    if os.path.exists(path):
+        v = open(path).read().strip()
+        if v:
+            return v
+    v = secrets.token_hex(8)
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    old = os.umask(0o077)
+    try:
+        with open(path, "w") as f:
+            f.write(v)
+    finally:
+        os.umask(old)
+    print(f"generated an android_id and saved it to {path}", file=sys.stderr)
+    return v
 
 WEB_BASE = "https://accounts.google.com/encryption/unlock/android"
 DOMAIN = "on_device_location_history"
@@ -64,7 +86,7 @@ def b64u(b): return base64.urlsafe_b64encode(b).decode().rstrip("=")
 def main():
     ap = argparse.ArgumentParser(description="Browser-only security-domain key retrieval.")
     ap.add_argument("--email", required=True)
-    ap.add_argument("--android-id", required=True)
+    ap.add_argument("--android-id", help="16-hex id; reuses/creates $TIMELINE_OUT/android_id")
     ap.add_argument("--master-token-file", required=True)
     ap.add_argument("--domain", default=DOMAIN)
     ap.add_argument("--enroll", action="store_true", help="INITIAL_ENROLLMENT instead of retrieval")
@@ -74,6 +96,7 @@ def main():
     ap.add_argument("--timeout", type=int, default=120)
     ap.add_argument("-o", "--out", default="out/key.b64")
     a = ap.parse_args()
+    a.android_id = resolve_android_id(a.android_id)
 
     try:
         import gpsoauth
