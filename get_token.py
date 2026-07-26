@@ -12,10 +12,9 @@ Get the oauth_token with a normal Google sign-in, 2FA and all:
   1. open this in a browser (a private window is fine):
        https://accounts.google.com/embedded/setup/android?source=com.google.android.gms&xoauth_display_name=Android%20Device
   2. sign in normally. The page will end up blank / "signed in" — that is expected.
-  3. read the `oauth_token` cookie for accounts.google.com (DevTools > Application >
-     Cookies). Its value starts with "oauth2_4/".
-  4. python3 get_token.py --email you@example.com --android-id <16 hex> \
-         --oauth-token-file oauth.txt --out tok.txt
+  3. python3 get_token.py --email you@example.com --from-browser --out tok.txt
+     (reads the resulting oauth_token cookie for you; --oauth-token-file still works if
+      you would rather copy it from DevTools > Application > Cookies yourself)
   That token is single-use — redo step 1-3 if you need another master token.
 
 The scope is the one microG uses for the Geller/Timeline corpus:
@@ -24,10 +23,14 @@ The scope is the one microG uses for the Geller/Timeline corpus:
 You must supply the credentials — this script neither reads them from the device nor
 stores them. The master token is kept only in memory unless you pass --save-master.
 
+--from-browser reads that cookie from a browser ON THIS MACHINE. If you signed in
+elsewhere (a remote/headless box, a different desktop, a phone), there is no local cookie
+store to read: copy the value across yourself and use --oauth-token-file instead.
+
 Usage:
-    pip install gpsoauth
-    python3 get_token.py --email you@example.com --android-id <16 hex>   # prompts for app pw
-    python3 get_token.py ... --out tok.txt                             # write instead of print
+    pip install gpsoauth browser-cookie3
+    python3 get_token.py --email you@example.com --from-browser --out tok.txt
+    python3 get_token.py --email you@example.com --oauth-token-file oauth.txt --out tok.txt
 
 --android-id: the 64-bit id the tokens bind to. You do NOT need an Android device — omit
 the flag and one is generated and saved to $TIMELINE_OUT/android_id, then reused. (If you
@@ -69,10 +72,47 @@ def resolve_android_id(explicit=None, path=None):
     return v
 
 
+def oauth_token_from_browser(browser="chromium"):
+    """Read the oauth_token cookie your own browser received during a NORMAL sign-in.
+
+    This is the same thing you would copy out of DevTools by hand — it just saves the
+    copying. It does not automate or spoof the sign-in itself: Google blocks
+    automation-driven sign-in ("this browser or app may not be secure"), and defeating
+    that is not something this tool attempts. Sign in yourself, then run with --from-browser.
+
+    Cookie values are encrypted at rest by the browser, so this needs `browser_cookie3`
+    (pip install browser-cookie3), which handles the keyring/v10/v11 variants.
+    """
+    try:
+        import browser_cookie3
+    except ImportError:
+        sys.exit("--from-browser needs: pip install browser-cookie3\n"
+                 "  (or copy the oauth_token cookie manually and use --oauth-token-file)")
+    loaders = {"chromium": browser_cookie3.chromium, "chrome": browser_cookie3.chrome,
+               "firefox": browser_cookie3.firefox, "brave": browser_cookie3.brave,
+               "edge": browser_cookie3.edge}
+    load = loaders.get(browser)
+    if not load:
+        sys.exit(f"unknown --browser {browser!r}; choose from {', '.join(loaders)}")
+    try:
+        jar = load(domain_name="google.com")
+    except Exception as e:
+        sys.exit(f"could not read {browser} cookies: {e}\n"
+                 "  the browser may need to be closed, or the keyring unlocked")
+    for c in jar:
+        if c.name == "oauth_token" and (c.value or "").startswith("oauth2_4/"):
+            return c.value
+    sys.exit("no oauth_token cookie found — complete the sign-in at the embedded-setup URL "
+             "in that browser first (see this file's header)")
+
+
 def main():
     ap = argparse.ArgumentParser(description="Fetch a webhistory-scoped bearer token.")
     ap.add_argument("--email", required=True)
     ap.add_argument("--android-id", help="16-hex id; generated and saved if omitted")
+    ap.add_argument("--from-browser", metavar="BROWSER", nargs="?", const="chromium",
+                    help="read the oauth_token cookie from your browser after you sign in "
+                         "(chromium|chrome|firefox|brave|edge; default chromium)")
     ap.add_argument("--oauth-token", help="oauth2_4/... from the browser sign-in (flow A)")
     ap.add_argument("--oauth-token-file", help="read the oauth_token from a file (flow A)")
     ap.add_argument("--master-token-file", help="reuse a saved master token instead of logging in")
@@ -91,8 +131,11 @@ def main():
     if a.master_token_file:
         with open(a.master_token_file) as f:
             master = f.read().strip()
-    elif a.oauth_token or a.oauth_token_file:
-        if a.oauth_token_file:
+    elif a.from_browser or a.oauth_token or a.oauth_token_file:
+        if a.from_browser:
+            ot = oauth_token_from_browser(a.from_browser)
+            print(f"  read the oauth_token cookie from {a.from_browser}", file=sys.stderr)
+        elif a.oauth_token_file:
             with open(a.oauth_token_file) as f: ot = f.read().strip()
         else:
             ot = a.oauth_token.strip()
@@ -105,7 +148,7 @@ def main():
                      "the oauth_token is single-use and short-lived — redo the browser sign-in")
         if a.save_master:
             with open(a.save_master, "w") as f: f.write(master)
-            import os; os.chmod(a.save_master, 0o600)
+            os.chmod(a.save_master, 0o600)
             print(f"master token saved to {a.save_master} (mode 600 — treat as a password)", file=sys.stderr)
     else:
         sys.exit("no master token and no --oauth-token: complete the browser sign-in first "
@@ -121,7 +164,7 @@ def main():
     if a.out:
         with open(a.out, "w") as f:
             f.write(tok)
-        import os; os.chmod(a.out, 0o600)
+        os.chmod(a.out, 0o600)
         print(f"bearer written to {a.out} (mode 600, expires in ~1h)", file=sys.stderr)
     else:
         print(tok)

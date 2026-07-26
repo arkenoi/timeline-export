@@ -16,12 +16,11 @@ required for anything.
 ```bash
 pip install 'httpx[http2]' cryptography gpsoauth
 
-# 1. sign in normally (2FA and all) at:
+# 1. sign in normally (2FA and all), in your own browser, at:
 #    https://accounts.google.com/embedded/setup/android?source=com.google.android.gms&xoauth_display_name=Android%20Device
-#    then copy the `oauth_token` cookie for accounts.google.com (starts with "oauth2_4/")
-python3 get_token.py --email you@example.com \
-  --oauth-token-file oauth.txt --save-master ~/timeline-data/master.txt \
-  --out ~/timeline-data/tok.txt
+pip install browser-cookie3        # lets step 1's cookie be picked up automatically
+python3 get_token.py --email you@example.com --from-browser \
+  --save-master ~/timeline-data/master.txt --out ~/timeline-data/tok.txt
 
 # 2. one-time: fetch the decryption key with a browser (answer the password prompt)
 python3 web_key.py --email you@example.com \
@@ -30,6 +29,18 @@ python3 web_key.py --email you@example.com \
 # 3. fetch + decode + build records
 ./export_all.sh --cloud
 ```
+
+`--from-browser` reads the `oauth_token` cookie your browser received — the same value you
+would otherwise copy from DevTools (`--oauth-token-file` still works if you prefer that, or
+use another browser with `--from-browser firefox`). The **sign-in itself is not automated**:
+Google blocks automation-driven sign-in, and this tool does not try to get around that.
+
+`--from-browser` reads a cookie store **on the same machine**. If your browser is
+elsewhere — you signed in on your laptop but run this on a server, or the box is headless —
+there is nothing local to read. Sign in wherever you like, copy the `oauth_token` value
+across (DevTools → Application → Cookies → `accounts.google.com`), and use
+`--oauth-token-file` instead. Only that one short-lived, single-use value needs to travel;
+your password and second factor never leave the machine you signed in on.
 
 No `--android-id` needed: the tokens bind to a 64-bit id, and one is generated on first
 run and saved to `$TIMELINE_OUT/android_id` for reuse. Keep that file — every later token
