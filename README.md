@@ -329,7 +329,7 @@ gpsoauth master-login → scoped-bearer exchange):
 
 ```bash
 pip install gpsoauth
-python3 get_token.py --email you@gmail.com \
+python3 get_token.py --email you@example.com \
   --android-id "$(docker exec rd settings get secure android_id)" --out out/tok.txt
 ```
 

@@ -15,7 +15,7 @@ Create an app password at https://myaccount.google.com/apppasswords (needs 2-Ste
 
 Usage:
     pip install gpsoauth
-    python3 get_token.py --email you@gmail.com --android-id <16 hex>   # prompts for app pw
+    python3 get_token.py --email you@example.com --android-id <16 hex>   # prompts for app pw
     python3 get_token.py ... --out tok.txt                             # write instead of print
 
 --android-id: the GSF/Android ID the token is bound to. Read it from a device you own,
