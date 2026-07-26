@@ -1,49 +1,46 @@
 # timeline-export
 
-**Headless, reproducible** export of a Google Maps Timeline (the 2024+
-on-device "Location History") to JSON — decoded directly from the device's
-`odlh-storage.db`, with no network. (Decoding and analysis are pure file reads; only the one-off
-backup *import* drives the Maps UI.)
+Export your Google Maps Timeline (the 2024+ on-device "Location History") to JSON —
+fetched straight from Google and decoded locally.
 
-Runs against a redroid Android container. The point of the project: recover Google's
-own **`placeId`** for every visit — Google's building-level place match that raw GPS
-tracks can't reproduce — plus semantic classification, and dump it as machine-readable
-JSON on demand.
+The point of the project: recover Google's own **`placeId`** for every visit — its
+building-level place match, which raw GPS coordinates cannot reproduce — plus semantic
+classification, transport modes and trips, as machine-readable JSON.
 
-## Quick start (one script)
+Nothing here needs an Android device. An optional path via an Android container also
+exists (see [Appendix: the container path](#appendix-the-container-path)) but is no longer
+required for anything.
 
-On a clean machine with `docker`, `adb`, `python3`, `sqlite3`, `curl` (and `node`+`npm`+
-a Chromium for no-key name resolution):
+## Quick start
 
 ```bash
-git clone <this repo> && cd timeline-export
-./setup.sh
+pip install 'httpx[http2]' cryptography gpsoauth
+
+# 1. sign in normally (2FA and all) at:
+#    https://accounts.google.com/embedded/setup/android?source=com.google.android.gms&xoauth_display_name=Android%20Device
+#    then copy the `oauth_token` cookie for accounts.google.com (starts with "oauth2_4/")
+python3 get_token.py --email you@example.com --android-id <16 hex> \
+  --oauth-token-file oauth.txt --save-master ~/timeline-data/master.txt \
+  --out ~/timeline-data/tok.txt
+
+# 2. one-time: fetch the decryption key with a browser (answer the password prompt)
+python3 web_key.py --email you@example.com --android-id <16 hex> \
+  --master-token-file ~/timeline-data/master.txt --headful -o ~/timeline-data/key.b64
+
+# 3. fetch + decode + build records
+./export_all.sh --cloud
 ```
 
-`setup.sh` is idempotent and does the whole bring-up: checks tools, starts a
-resolution-pinned redroid container, installs the lmkd/display stability fixes (host
-supervisor + in-container Magisk boot script + busybox), waits for boot, signs you into
-Google (automated with your credentials, or manually on-screen), imports your Timeline
-backup, runs the first
-export, optionally resolves place names, and optionally installs a nightly refresh. It
-asks three things: container name, name-resolution method (browser / API key / skip), and
-whether to install the cron. Re-run it any time — it detects and reuses existing state.
+`--android-id` is any 16-hex device id the token is bound to; if you have an Android
+device to hand, `adb shell settings get secure android_id` gives you one.
 
-The sections below document what it wires up, and the day-to-day commands.
+Afterwards only step 3 is routine. The bearer from step 1 lasts about an hour and is
+refreshed from the saved master token without the browser:
 
-### Platform: redroid needs a Linux host
-
-redroid runs Android on the **host Linux kernel** and requires the `binder`/`ashmem`
-kernel modules, so the container step only works on Linux (bare metal or a Linux VM with
-those modules). **Docker Desktop on macOS/Windows won't run it** — its LinuxKit VM lacks
-binder/ashmem. Options off Linux:
-- run redroid inside a Linux VM (UTM/Lima/multipass/VirtualBox; use the `arm64` image on
-  Apple Silicon) and run `setup.sh` there, or on a remote/cloud Linux box;
-- or skip the container entirely and point the **processing half** at an
-  `odlh-storage.db` pulled from *any* Linux redroid or a rooted Android phone —
-  `odlh_export.py` / `resolve_names.js` / `place_names.py` / `travel_mode.py` are pure
-  Python/Node and run natively on macOS/Windows/Linux (set `CHROME_PATH` for the browser
-  resolver — it defaults to a Linux chromium path).
+```bash
+python3 get_token.py --email you@example.com --android-id <16 hex> \
+  --master-token-file ~/timeline-data/master.txt --out ~/timeline-data/tok.txt
+```
 
 ## Where output goes — and why it matters
 
@@ -59,31 +56,47 @@ simply are not there.
 Before pushing, run `tools/precommit-scan.sh` (case-insensitive, scans history too, and
 reads a git-ignored `.private-denylist` of your own terms).
 
-## Usage
+⚠️ `key.b64` decrypts your entire location history and `master.txt` is a long-lived
+account credential. Both are written mode 600; treat them like passwords. Revoke the
+master token at <https://myaccount.google.com/device-activity>.
 
-```bash
-./export_all.sh --cloud        # container-free: fetch from Google → records (recommended)
-./export_all.sh                # via the Android container: decode → resolve → records
-./export_all.sh --reimport     # container path, refreshing the backup first
-./fetch_and_export.sh [OUTDIR] # just decode the on-device DB → out/Timeline-latest.json
-```
+## How retrieval works
 
-Produces `OUTDIR/Timeline-<timestamp>.json` (+ a `Timeline-latest.json` symlink) and
-keeps a copy of the raw `odlh-storage.db`. Re-run any time; it's idempotent.
+Google's own Play services fetch this data over a private gRPC service, and this client
+speaks the same protocol. Wire shapes come from
+[microG GmsCore](https://github.com/microg/GmsCore/pull/3331) (Apache-2.0), an
+open-source clean-room implementation:
 
-To decode a DB you already have:
-```bash
-python3 odlh_export.py path/to/odlh-storage.db -o Timeline.json --stats
-python3 odlh_export.py odlh-storage.db --no-paths -o visits_activities_only.json
-```
+| | |
+|---|---|
+| endpoint | `geller-pa.googleapis.com` |
+| RPC | `/geller.oneplatform.GellerService/BatchSync` (gRPC over HTTP/2) |
+| corpus | `GellerDataType.ENCRYPTED_ONDEVICE_LOCATION_HISTORY` (79) |
+| scope | `https://www.googleapis.com/auth/webhistory` |
+| crypto | AES-256-GCM, 12-byte IV ‖ ciphertext+tag, 32-byte key |
 
-Requirements: `docker` (running the container), `python3` (stdlib only), and
-`sqlite3` on the host. Container name defaults to `rd`; override with `RD_CONTAINER=...`.
+The response carries `GellerElement`s whose payloads unwrap
+`GellerAny → GellerE2eeElement → (decrypt) → ExternalDbSync → ExternalDbSnapshot → rows`;
+the `semantic_segment` column of those rows is the protobuf the decoder reads.
+`content-type` must be exactly `application/grpc` — `application/grpc+proto` returns 404.
+
+**The key** lives in the `on_device_location_history` security domain. `web_key.py` gets it
+with a browser: it drives the same `accounts.google.com/encryption/unlock/android` page
+Play services uses, standing in a `window.mm` shim where Android has its WebView JS
+bridge, and captures the material the page delivers via `setVaultSharedKeys`. Google
+interposes a password re-auth challenge (not a lock-screen factor), so run `--headful` and
+answer it. `extract_key.py` is an alternative if you have a device already enrolled in the
+domain — it reads the same key from `files/folsom/shared/FolsomKeyStore.pb`, where this
+domain stores it unwrapped.
+
+The key is domain-wide and stable across devices; re-run only if Google rotates it (the
+store records an epoch).
 
 ## Where the data comes from
 
-`/data/data/com.google.android.gms/databases/odlh-storage.db`  ← **ODLH = On-Device
-Location History** (GMS). Table `semantic_segment_table`, one row per segment; the
+**ODLH = On-Device Location History.** `geller_fetch.py` writes it as
+`$TIMELINE_OUT/odlh-storage.db`; on an Android device Play services keeps the same store at
+`/data/data/com.google.android.gms/databases/odlh-storage.db`. Table `semantic_segment_table`, one row per segment; the
 `semantic_segment` column is a protobuf blob (Google's `SemanticSegment` message).
 This is the same data Google's own *Export Timeline data* button emits — but that
 button is a fragile SAF-picker UI flow (and is missing from some Maps builds), useless
@@ -210,10 +223,10 @@ flagged, not mislabelled.
 
 ```bash
 npm install                      # puppeteer-core (needs a system Chromium/Chrome)
-./get_consent_cookie.sh          # accept the anonymous EU cookie-consent → out/consent_cookies.txt
-node resolve_names.js out/Timeline-latest.json -o out/Timeline-named.json
+./get_consent_cookie.sh $TIMELINE_OUT/consent_cookies.txt   # anonymous EU cookie-consent
+node resolve_names.js "$TIMELINE_OUT/Timeline-latest.json" -o "$TIMELINE_OUT/Timeline-named.json"
 ```
-Adds `placeName` + `placeAddress` to every visit; caches in `out/place_cache_browser.json`
+Adds `placeName` + `placeAddress` to every visit; caches in `$TIMELINE_OUT/place_cache_browser.json`
 (resumable). Env knobs: `CHROME_PATH`, `RESOLVE_DELAY_MS` (default 2500), `RESOLVE_LIMIT`
 (0 = all). **Pace it** — rendering 300+ Maps pages fast from one IP can trip Google
 throttling/CAPTCHA; the default delay is deliberately conservative, and the cache means
@@ -278,9 +291,9 @@ no LLM:
 Deterministic modal-split report over the activity segments — no LLM, no network:
 
 ```bash
-python3 travel_mode.py out/Timeline-latest.json          # modal split + longest + cross-check
-python3 travel_mode.py out/Timeline-latest.json --trips  # + per-trip mode breakdown
-python3 travel_mode.py out/Timeline-latest.json --json    # machine-readable summary
+python3 travel_mode.py "$TIMELINE_OUT/Timeline-latest.json"          # modal split + longest + cross-check
+python3 travel_mode.py "$TIMELINE_OUT/Timeline-latest.json" --trips  # + per-trip mode breakdown
+python3 travel_mode.py "$TIMELINE_OUT/Timeline-latest.json" --json    # machine-readable summary
 ```
 
 Uses Google's own per-activity mode (`activity.topCandidate.type`/`typeCode`, emitted by
@@ -291,200 +304,38 @@ Google misclassifications and GPS-jitter artifacts — it's how the `code 7 = ve
 cycling` label was pinned). Mode labels: `2/5/29` are speed-verified (walking/flying/
 vehicle); the rest are best-effort over Google's raw enum, and `typeCode` is always kept.
 
-## Login (`login.sh`)
+## Appendix: the container path
 
-Sign in to **your own existing** Google account (it never creates one) — automated:
+Before the direct fetch existed, this project drove an Android container (redroid) to make
+Play services sync the Timeline, then read the resulting `odlh-storage.db`. That still
+works and needs no token or key, but it is slower, far heavier, and lags behind the cloud
+by however long Google's backup/import cycle takes.
 
-```bash
-./login.sh          # prompts for email + password; setup.sh runs this for you
-```
+`setup.sh` automates the whole bring-up: a resolution-pinned redroid container, the
+lmkd/display stability fixes it needs on a KVM-less host, optional Play Integrity
+(`redroid/play_integrity.sh`), sign-in (`login.sh`), the backup import (`reimport.sh`,
+fixed-coordinate taps verified against the GMS log), and a nightly refresh. `export_all.sh`
+without `--cloud` decodes from the container.
 
-The user types email and password and approves the "is it you?"
-prompt on their phone (Google's 2-step gate). The script drives the on-device sign-in
-itself — **no adb or scrcpy**. Credentials come from the prompt or `$GMAIL_USER` /
-`$GMAIL_PASS`.
+redroid runs Android on the **host Linux kernel** and needs `binder`/`ashmem`, so the
+container path is Linux-only; Docker Desktop on macOS/Windows will not run it. The
+processing tools are pure Python/Node and run anywhere.
 
-Caveat: Google challenges automated sign-in on rooted / non-Play-certified devices
-(redroid is both), so a CAPTCHA is possible. `login.sh` verifies the result and reports
-if it couldn't confirm; if Google throws a challenge, clear it once on the device and
-re-run. 
-The account and its OAuth tokens live in the container's `/data` volume, never in this
-repo — so don't publish a snapshot of that volume.
-
-## Container-free retrieval (experimental) — `geller_fetch.py`
-
-Fetches the Timeline straight from Google's Geller sync service and writes an
-`odlh-storage.db`, so the rest of the pipeline runs **with no Android container at all**:
-
-```bash
-pip install 'httpx[http2]' cryptography
-python3 geller_fetch.py --token-file tok.txt --key-file key.b64 -o out/odlh-storage.db
-python3 odlh_export.py out/odlh-storage.db -o out/Timeline-latest.json --stats
-```
-
-Wire shapes come from microG GmsCore (Apache-2.0, [PR #3331](https://github.com/microg/GmsCore/pull/3331)):
-endpoint `geller-pa.googleapis.com`, RPC `/geller.oneplatform.GellerService/BatchSync`,
-corpus `ENCRYPTED_ONDEVICE_LOCATION_HISTORY` (=79), AES-256-GCM (12-byte IV ‖ ct+tag),
-payload chain `GellerAny → GellerE2eeElement → decrypt → ExternalDbSync →
-ExternalDbSnapshot → rows.semantic_segment`.
-
-**It performs no authentication and no key extraction** — you supply both, and nothing is
-stored, logged, or echoed. `--sync-token` makes subsequent fetches incremental.
-
-`get_token.py` covers the token half — a normal browser sign-in, then a gpsoauth token
-exchange:
-
-```bash
-pip install gpsoauth
-# 1. sign in normally (2FA and all) at:
-#    https://accounts.google.com/embedded/setup/android?source=com.google.android.gms&xoauth_display_name=Android%20Device
-# 2. copy the `oauth_token` cookie for accounts.google.com (starts with "oauth2_4/")
-# 3. exchange it:
-python3 get_token.py --email you@example.com \
-  --android-id "$(docker exec rd settings get secure android_id)" \
-  --oauth-token-file oauth.txt --out out/tok.txt
-```
-
-The `oauth_token` is single-use and short-lived.
-
-How it works: the RPC returns a `SyncResult` containing `GellerElement`s for the account,
-each an AES-256-GCM `GellerE2eeElement`; the client decrypts them, walks
-`ExternalDbSync → ExternalDbSnapshot → rows`, and writes the `semantic_segment` blobs into
-an `odlh-storage.db` the normal decoder reads. `content-type` must be exactly
-`application/grpc` — `application/grpc+proto` returns a 404.
-
-**Both inputs are solved, and no Android is required at all.** The key can be obtained
-with a browser alone (`web_key.py`), or read from an enrolled device if you have one
-(`extract_key.py`) — both yield the identical key:
-
-```bash
-python3 web_key.py --email you@example.com --android-id <16 hex> \
-  --master-token-file out/master.txt --headful -o out/key.b64   # one time, browser only
-# (or, if you have an enrolled device: python3 extract_key.py --container rd -o out/key.b64)
-python3 get_token.py --email you@example.com \
-  --android-id "$(docker exec rd settings get secure android_id)" \
-  --oauth-token-file oauth.txt --out out/tok.txt       # token expires ~1h
-python3 geller_fetch.py --token-file out/tok.txt --key-file out/key.b64 \
-  -o out/odlh-storage.db
-python3 odlh_export.py out/odlh-storage.db -o out/Timeline-latest.json --stats
-```
-
-Inputs, for reference:
-- `--token`: an OAuth bearer for scope `https://www.googleapis.com/auth/webhistory` —
-  **solved**, see `get_token.py`
-- `--key`: base64 of the 32-byte AES key for the `on_device_location_history` security
-  domain — `extract_key.py` reads it from an enrolled device's
-  `files/folsom/shared/FolsomKeyStore.pb`, where it is stored **in the clear** (unlike
-  `hw_protected`, whose key material is wrapped). Enrollment is still required *once*:
-  the key only exists on a device that has synced Timeline. The store records a key epoch,
-  so re-run `extract_key.py` if the key ever rotates.
-
-## Refreshing the data (headless, no LLM) — `reimport.sh`
-
-The new Google Timeline does **not** sync between devices; the only way to pull your
-phone's ongoing cloud backup into this device is the manual **Import** flow. That flow
-is a fixed sequence of taps, so it scripts deterministically:
-
-```bash
-./reimport.sh            # drive Import, verify via GMS log
-./reimport.sh --export   # ... then run fetch_and_export.sh
-```
-
-`reimport.sh` launches the Timeline deep link and taps the fixed targets
-(cloud icon → device ⋮ → Import → confirm), then **verifies success by watching
-GMS's own log** (`LocationHistory: [BackupRunner] … restored` /
-`[BackupPreprocessor] inserting N segments`). It reports how many new segments came in and exits non-zero if it never sees a
-`BackupRunner` line. Caveat: a run that reaches the log but imports nothing reports
-OK with `inserted=0` — check that number, not just the exit code. Cron it daily (phones back up ~daily):
-
-```cron
-# refresh timeline + export every night at 03:30 (log is git-ignored)
-30 3 * * *  cd $HOME/timeline-export && ./reimport.sh --export >> out/reimport.log 2>&1
-```
-
-The script is **device-name agnostic**: it taps the ⋮ by *position* on the single
-backup row, so it works whatever your phone is called (Pixel, Galaxy, whatever) —
-nothing matches a device name. `uiautomator` is non-functional in redroid (empty dumps
-even on static screens), so element-by-text tapping isn't available; fixed coordinates
-are the fallback.
-
-## Drift & robustness (read before distributing)
-
-The fragile part is the four tap coordinates. Mitigations, in order of importance:
-
-1. **Self-verification** (built in): the GMS `LocationHistory` log is the source of
-   truth. If Google moves the UI, no `BackupRunner` line appears, `reimport.sh`
-   retries then exits 1 — drift is detected, never silent.
-2. **Pin the resolution.** Coordinates assume **720×1280 @ 320 dpi** (redroid's
-   default; verify with `adb shell wm size`). Launch the container with those
-   `redroid_width/height/dpi` and the coords are identical for every checkout.
-   Different resolution ⇒ re-measure (`screencap`).
-3. **Single backup device.** The ⋮ target assumes exactly one device under
-   "Your backups". With several, adjust `TAP_OVERFLOW` (they stack vertically).
-4. Coordinates live in labelled variables at the top of `reimport.sh` — the only
-   thing to touch after a Maps redesign.
-
-Deeper (not implemented): the Import button ultimately invokes GMS's
-`OnDemandBackupRestoreOperation` (restore=true) via the `semanticlocationhistory`
-bound service (`com.google.android.gms/.chimera.GmsApiService`). A custom client that
-binds and sends that request would be fully UI-independent, but it means reproducing a
-GMS protobuf API + auth — heavier and fragile in its own way. The tap flow is the
-pragmatic, working choice.
-
-## Reproduce from scratch (what `setup.sh` automates)
-
-`./setup.sh` does all of the below for you; this is the manual equivalent / reference.
-Nothing here bundles an image or personal data — you start from the **public** redroid
-image, a **fresh empty** `/data`, and log into your own account.
-
-1. **Container** — pinned resolution, and `/data` in a **named docker volume** (kept
-   out of the repo tree, so account tokens can't be committed):
-   ```bash
-   docker volume create rd_data
-   docker run -d --privileged --name rd --cgroupns=host \
-     -v rd_data:/data -p 5555:5555 \
-     redroid/redroid:14.0.0_mindthegapps_magisk \
-     androidboot.redroid_gpu_mode=guest \
-     androidboot.redroid_width=720 androidboot.redroid_height=1280 androidboot.redroid_dpi=320
-   adb connect localhost:5555
-   ```
-   On a KVM-less host, redroid needs the lmkd/display stability fixes or GMS-heavy
-   screens wedge adbd — see the companion `redroid-stability` unit.
-2. **Sign in** — the manual one-time step (see **Login** above).
-3. **Import the backup once** (bootstraps the on-device store): `./reimport.sh`
-   — or by hand: Maps → *Your Timeline* → cloud icon → *Your backups* → your device →
-   ⋮ → **Import**.
-4. **Export**: `./fetch_and_export.sh` → `out/Timeline-latest.json`.
-5. **Automate**: cron `./reimport.sh --export` (see above).
-
-⚠️ The on-device store lives only in GMS app data (the `/data` volume) — clearing Play
-services or deleting the volume destroys it; re-import to rebuild.
+See `docs/microg-path.md` for notes on replacing that stack with microG, kept for
+reference — the direct fetch made it unnecessary.
 
 ## Files
 
-- `setup.sh` — one-shot bring-up of the whole pipeline on a clean machine.
-- `login.sh` — best-effort automated Google sign-in for a fresh container (optional).
-- `export_all.sh` — one command: decode → resolve names → comprehensive records.
-- `build_records.py` — deterministic builder: enriched visits + rich trip records.
-- `redroid/redroid-stability.sh` — host supervisor (lmkd watchdog + display keep-awake).
-- `redroid/99-redroid-stability.sh` — in-container Magisk boot script (persistent half).
-- `redroid/play_integrity.sh` — installs ReZygisk + PlayIntegrityFork (aims at Play
-  Integrity BASIC; the script cannot verify the verdict itself).
-- `odlh_export.py` — the decoder (stdlib-only protobuf reader → JSON).
-- `fetch_and_export.sh` — pull DB from container + decode. Export entry point.
-- `reimport.sh` — headless re-import of the cloud backup (fixed taps + GMS-log verify).
-- `resolve_names.js` — resolve placeIds → names via headless Chromium (no API key).
-- `get_consent_cookie.sh` — fetch the consent cookie the browser resolver needs.
-- `place_names.py` — resolve placeIds → names/categories via the Places API (keyed).
-- `travel_mode.py` — deterministic travel-mode / modal-split analyzer.
-- `geller_fetch.py` — experimental container-free fetch (you supply token + key).
-- `get_token.py` — obtain the webhistory-scoped bearer (browser sign-in → exchange).
-- `web_key.py` — one-time: get the security-domain key with a browser (no Android).
+- `get_token.py` — browser sign-in → OAuth bearer for the Timeline scope.
+- `web_key.py` — one-time: fetch the security-domain key with a browser.
 - `extract_key.py` — one-time alternative: read it from an already-enrolled device.
-- `package.json` — node dep (`puppeteer-core`) for `resolve_names.js`.
+- `geller_fetch.py` — fetch from Google → `odlh-storage.db`.
+- `odlh_export.py` — decode that DB → `{"semanticSegments": [...]}` (stdlib only).
+- `build_records.py` — enriched visits + movements + trips.
+- `resolve_names.js` / `get_consent_cookie.sh` — place names via headless Chromium (no key).
+- `place_names.py` — place names via the Places API (keyed).
+- `travel_mode.py` — travel-mode / modal-split analyzer.
+- `export_all.sh` — one command: fetch (or decode) → resolve → records.
+- `setup.sh`, `login.sh`, `reimport.sh`, `fetch_and_export.sh`, `redroid/*` — the container path.
+- `tools/precommit-scan.sh` — local leak scan before pushing.
 - `sample-output.json` — synthetic example of the output schema.
-- `docs/microg-path.md` — research notes on replacing the redroid stack with microG (not built).
-- `.gitignore` — keeps generated files and `node_modules/` out of the repo.
-- `LICENSE` — MIT.
-- `.github/workflows/ci.yml` — CI: shell / python / node syntax checks.
-- output is written to `$TIMELINE_OUT` (default `~/timeline-data`), never into the repo.
