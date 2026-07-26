@@ -304,6 +304,36 @@ reject a manually-added account. Try it if the WebView keeps failing.)
 The account and its OAuth tokens live in the container's `/data` volume, never in this
 repo — so don't publish a snapshot of that volume.
 
+## Container-free retrieval (experimental) — `geller_fetch.py`
+
+Fetches the Timeline straight from Google's Geller sync service and writes an
+`odlh-storage.db`, so the rest of the pipeline runs **with no Android container at all**:
+
+```bash
+pip install 'httpx[http2]' cryptography
+python3 geller_fetch.py --token-file tok.txt --key-file key.b64 -o out/odlh-storage.db
+python3 odlh_export.py out/odlh-storage.db -o out/Timeline-latest.json --stats
+```
+
+Wire shapes come from microG GmsCore (Apache-2.0, [PR #3331](https://github.com/microg/GmsCore/pull/3331)):
+endpoint `geller-pa.googleapis.com`, RPC `/geller.oneplatform.GellerService/BatchSync`,
+corpus `ENCRYPTED_ONDEVICE_LOCATION_HISTORY` (=79), AES-256-GCM (12-byte IV ‖ ct+tag),
+payload chain `GellerAny → GellerE2eeElement → decrypt → ExternalDbSync →
+ExternalDbSnapshot → rows.semantic_segment`.
+
+**It performs no authentication and no key extraction** — you supply both, and nothing is
+stored, logged, or echoed. `--sync-token` makes subsequent fetches incremental.
+
+**Status: the decode/decrypt path is verified end-to-end offline** (real segment blobs
+round-tripped through a synthesized encrypted response into the normal decoder, 0 errors,
+placeIds intact). The **live call is unverified**, and obtaining the two inputs is the
+genuinely open problem:
+- `--token`: an OAuth bearer for scope `https://www.googleapis.com/auth/webhistory`
+- `--key`: base64 of the 32-byte AES key for the `on_device_location_history`
+  security domain. microG obtains it via a Google-hosted page + JS bridge; whether that
+  works off-device — or needs a device already enrolled in the security domain — is
+  **not established**.
+
 ## Refreshing the data (headless, no LLM) — `reimport.sh`
 
 The new Google Timeline does **not** sync between devices; the only way to pull your
@@ -403,6 +433,7 @@ services or deleting the volume destroys it; re-import to rebuild.
 - `get_consent_cookie.sh` — fetch the consent cookie the browser resolver needs.
 - `place_names.py` — resolve placeIds → names/categories via the Places API (keyed).
 - `travel_mode.py` — deterministic travel-mode / modal-split analyzer.
+- `geller_fetch.py` — experimental container-free fetch (you supply token + key).
 - `package.json` — node dep (`puppeteer-core`) for `resolve_names.js`.
 - `sample-output.json` — synthetic example of the output schema.
 - `docs/microg-path.md` — research notes on replacing the redroid stack with microG (not built).
