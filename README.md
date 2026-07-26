@@ -341,11 +341,16 @@ python3 get_token.py --email you@example.com \
 The legacy app-password flow (`--app-password`) still exists but Google has largely
 retired it — expect `BadAuthentication`. The `oauth_token` is single-use and short-lived.
 
-**Status: the decode/decrypt path is verified end-to-end offline** (real segment blobs
-round-tripped through a synthesized encrypted response into the normal decoder, 0 errors,
-placeIds intact). The **live call is unverified**, and obtaining the two inputs is the
-genuinely open problem:
-- `--token`: an OAuth bearer for scope `https://www.googleapis.com/auth/webhistory`
+**Status: the live fetch is verified.** With a real `webhistory` bearer the RPC returns
+HTTP 200 over HTTP/2 and ~2.7 MB of `SyncResult` containing the account's `GellerElement`s;
+the client parses them down to `GellerE2eeElement` and stops at AES-GCM. The decode path
+below that is verified offline (real segment blobs round-tripped through a synthesized
+encrypted response into the normal decoder, 0 errors, placeIds intact).
+`content-type` must be exactly `application/grpc` — `application/grpc+proto` 404s.
+
+**The one unsolved input is the key:**
+- `--token`: an OAuth bearer for scope `https://www.googleapis.com/auth/webhistory` —
+  **solved**, see `get_token.py`
 - `--key`: base64 of the 32-byte AES key for the `on_device_location_history`
   security domain. microG obtains it via a Google-hosted page + JS bridge; whether that
   works off-device — or needs a device already enrolled in the security domain — is

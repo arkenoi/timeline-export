@@ -89,12 +89,21 @@ def build_request(sync_token=None, client_id="SEMANTICLOCATION"):
     return fld_bytes(1, item) + fld_str(2, client_id)
 
 def grpc_frame(msg):      return b'\x00' + struct.pack('>I', len(msg)) + msg
-def grpc_unframe(buf):
+
+def grpc_unframe(buf, encoding='gzip'):
+    """gRPC length-prefixed frames: 1 flag byte (1 = compressed) + 4-byte BE length."""
+    import gzip, zlib
     out, i = [], 0
     while i + 5 <= len(buf):
         comp = buf[i]; ln = struct.unpack('>I', buf[i+1:i+5])[0]; i += 5
         payload = buf[i:i+ln]; i += ln
-        if comp: raise RuntimeError('compressed gRPC frame not supported')
+        if comp:
+            if 'gzip' in (encoding or ''):
+                payload = gzip.decompress(payload)
+            elif 'deflate' in (encoding or ''):
+                payload = zlib.decompress(payload)
+            else:
+                raise RuntimeError(f'unsupported grpc-encoding: {encoding!r}')
         out.append(payload)
     return out
 
@@ -111,10 +120,20 @@ def decrypt(blob, key):
 
 # ---------- response walking ----------
 def snapshots(resp_msg, key):
-    """yield ExternalDbSnapshot field-maps from a BatchSyncResponse."""
-    for _, item_b in resp_msg.get(1, []):                     # SyncItem(s)
+    """yield ExternalDbSnapshot field-maps from a BatchSyncResponse.
+
+    BatchSyncResponse{items=1} -> SyncResponseItem{error=1|syncResult=2, dataType=3}
+      -> SyncResult{dataType=1, mutations=5, results=6, syncToken=8}
+        -> GellerElement{elementId=2, payload=3}
+    """
+    for _, item_b in resp_msg.get(1, []):                      # SyncResponseItem(s)
         item = parse(item_b)
-        for _, el_b in item.get(4, []) + item.get(5, []):      # mutations / deletions
+        err = one(item, 1)
+        if err: print(f"  warn: server returned an error result: {err[:120]!r}", file=sys.stderr)
+        sr_b = one(item, 2)                                    # SyncResult
+        if not sr_b: continue
+        sr = parse(sr_b)
+        for _, el_b in sr.get(5, []) + sr.get(6, []):          # mutations / results
             el = parse(el_b)
             any_b = one(el, 3)                                 # GellerAny payload
             if not any_b: continue
@@ -132,6 +151,15 @@ def snapshots(resp_msg, key):
             sync = parse(value)
             snap_b = one(sync, 3)
             if snap_b: yield parse(snap_b)
+
+def sync_token_of(resp_msg):
+    """SyncResult.syncToken (field 8) — pass back via --sync-token for incremental sync."""
+    for _, item_b in resp_msg.get(1, []):
+        sr_b = one(parse(item_b), 2)
+        if not sr_b: continue
+        tok = one(parse(sr_b), 8)
+        if isinstance(tok, bytes): return tok.decode('utf8', 'replace')
+    return None
 
 def rows_of(snap):
     cols = [(c[1]).decode('utf8', 'replace') for c in snap.get(4, [])]
@@ -188,6 +216,7 @@ def main():
     ap.add_argument("--sync-token", help="resume token from a previous run (incremental)")
     ap.add_argument("-o", "--out", default="out/odlh-storage.db")
     ap.add_argument("--raw", help="also dump the raw BatchSyncResponse here (debugging)")
+    ap.add_argument("--debug", action="store_true", help="print HTTP status/version/headers")
     a = ap.parse_args()
 
     token = read_secret(a.token, a.token_file, "token")
@@ -203,9 +232,17 @@ def main():
     with httpx.Client(http2=True, timeout=60) as c:
         r = c.post("https://geller-pa.googleapis.com/geller.oneplatform.GellerService/BatchSync",
                    content=body,
-                   headers={"content-type": "application/grpc+proto",
+                   headers={"content-type": "application/grpc",
                             "authorization": f"Bearer {token}",
+                            "grpc-accept-encoding": "identity,gzip",
                             "te": "trailers"})
+    if a.debug:
+        print(f"  HTTP {r.status_code} {r.http_version}  ct={r.headers.get('content-type')!r} "
+              f"grpc-status={r.headers.get('grpc-status')!r} grpc-encoding={r.headers.get('grpc-encoding')!r} "
+              f"len={len(r.content)}", file=sys.stderr)
+    if r.status_code != 200:
+        body = r.content[:200].decode('utf8', 'replace').replace('\n', ' ')
+        sys.exit(f"HTTP {r.status_code} from {r.url} — not a gRPC response.\n  body: {body}")
     status = r.headers.get("grpc-status", "0")
     if status != "0":
         sys.exit(f"gRPC error {status}: {r.headers.get('grpc-message','(no message)')}")
@@ -213,7 +250,9 @@ def main():
         with open(a.raw, "wb") as f: f.write(r.content)
 
     recs, snaps = [], 0
-    for snap in snapshots(parse(grpc_unframe(r.content)[0]), key):
+    frames = grpc_unframe(r.content, r.headers.get('grpc-encoding', 'gzip'))
+    if not frames: sys.exit('empty gRPC response')
+    for snap in snapshots(parse(frames[0]), key):
         snaps += 1
         table = (one(snap, 1) or b'').decode('utf8', 'replace')
         dbid = one(snap, 6)
