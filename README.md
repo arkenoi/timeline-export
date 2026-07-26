@@ -45,6 +45,20 @@ binder/ashmem. Options off Linux:
   Python/Node and run natively on macOS/Windows/Linux (set `CHROME_PATH` for the browser
   resolver — it defaults to a Linux chromium path).
 
+## Where output goes — and why it matters
+
+Generated data (the fetched DB, exports, name caches, tokens, the key) is written to
+**`$TIMELINE_OUT`, default `~/timeline-data` — deliberately outside the checkout.**
+
+That is a safety property, not a preference. If a working copy holds real location data,
+real values end up pasted into comments, docstrings and examples while you edit — which is
+exactly how a real city and postcode once reached this repo's history. Keep the checkout
+data-free and any example you write is necessarily synthetic, because the real values
+simply are not there.
+
+Before pushing, run `tools/precommit-scan.sh` (case-insensitive, scans history too, and
+reads a git-ignored `.private-denylist` of your own terms).
+
 ## Usage
 
 ```bash
@@ -487,4 +501,4 @@ services or deleting the volume destroys it; re-import to rebuild.
 - `.gitignore` — keeps generated files and `node_modules/` out of the repo.
 - `LICENSE` — MIT.
 - `.github/workflows/ci.yml` — CI: shell / python / node syntax checks.
-- `out/` — generated outputs (**git-ignored**).
+- output is written to `$TIMELINE_OUT` (default `~/timeline-data`), never into the repo.

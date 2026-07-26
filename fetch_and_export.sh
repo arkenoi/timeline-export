@@ -6,12 +6,13 @@
 # no network, no clicking. Run it any time the on-device Timeline has the data you
 # want (e.g. after importing the backup once via the Maps UI).
 #
-# Usage:  ./fetch_and_export.sh [OUTDIR]     (default OUTDIR = ./out)
+# Usage:  ./fetch_and_export.sh [OUTDIR]
+#   OUTDIR defaults to $TIMELINE_OUT, else ~/timeline-data — deliberately OUTSIDE the repo.
 set -euo pipefail
 
 CONTAINER="${RD_CONTAINER:-rd}"
 DB_PATH="/data/data/com.google.android.gms/databases/odlh-storage.db"
-OUTDIR="${1:-./out}"
+OUTDIR="${1:-${TIMELINE_OUT:-$HOME/timeline-data}}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 mkdir -p "$OUTDIR"
 

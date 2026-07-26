@@ -11,13 +11,16 @@
 # Usage:  ./export_all.sh [OUTDIR]              (default out)
 #         RESOLVE=0 ./export_all.sh             (skip name resolution)
 #         ./export_all.sh --reimport           (pull a fresh backup first)
+#   Output goes to $TIMELINE_OUT (default ~/timeline-data), never inside the checkout.
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; cd "$HERE"
 [ "${1:-}" = "--reimport" ] && { REIMPORT=1; shift; } || REIMPORT=0
 # --cloud: fetch straight from Google (no Android container in the data path).
 # Needs out/tok.txt (get_token.py) and out/key.b64 (extract_key.py, one-time).
 [ "${1:-}" = "--cloud" ] && { CLOUD=1; shift; } || CLOUD=0
-OUT="${1:-out}"
+# Default output lives OUTSIDE the repo: a checkout must never hold real data,
+# otherwise real values end up pasted into code comments and examples.
+OUT="${1:-${TIMELINE_OUT:-$HOME/timeline-data}}"
 
 [ "$REIMPORT" = "1" ] && { echo "[*] refreshing backup…"; ./reimport.sh || echo "  (reimport unverified — continuing with on-device data)"; }
 
