@@ -329,9 +329,17 @@ gpsoauth master-login → scoped-bearer exchange):
 
 ```bash
 pip install gpsoauth
+# 1. sign in normally (2FA and all) at:
+#    https://accounts.google.com/embedded/setup/android?source=com.google.android.gms&xoauth_display_name=Android%20Device
+# 2. copy the `oauth_token` cookie for accounts.google.com (starts with "oauth2_4/")
+# 3. exchange it:
 python3 get_token.py --email you@example.com \
-  --android-id "$(docker exec rd settings get secure android_id)" --out out/tok.txt
+  --android-id "$(docker exec rd settings get secure android_id)" \
+  --oauth-token-file oauth.txt --out out/tok.txt
 ```
+
+The legacy app-password flow (`--app-password`) still exists but Google has largely
+retired it — expect `BadAuthentication`. The `oauth_token` is single-use and short-lived.
 
 **Status: the decode/decrypt path is verified end-to-end offline** (real segment blobs
 round-tripped through a synthesized encrypted response into the normal decoder, 0 errors,

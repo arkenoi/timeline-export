@@ -2,9 +2,21 @@
 """
 get_token.py — obtain the OAuth bearer that geller_fetch.py needs, for your own account.
 
-One documented flow, no guessing:
-    email + Google APP PASSWORD  --(gpsoauth master login)-->  master token
-    master token                 --(gpsoauth perform_oauth)-->  scoped bearer
+Two documented flows:
+  A (recommended) browser sign-in --> oauth_token --(exchange_token)--> master token
+  B (legacy)      email + app password --(perform_master_login)--> master token
+     Google has largely retired B; it usually returns BadAuthentication now.
+  then, either way:  master token --(perform_oauth)--> scoped bearer
+
+FLOW A — get the oauth_token (a normal Google sign-in, 2FA and all):
+  1. open this in a browser (a private window is fine):
+       https://accounts.google.com/embedded/setup/android?source=com.google.android.gms&xoauth_display_name=Android%20Device
+  2. sign in normally. The page will end up blank / "signed in" — that is expected.
+  3. read the `oauth_token` cookie for accounts.google.com (DevTools > Application >
+     Cookies). Its value starts with "oauth2_4/".
+  4. python3 get_token.py --email you@example.com --android-id <16 hex> \
+         --oauth-token-file oauth.txt --out tok.txt
+  That token is single-use — redo step 1-3 if you need another master token.
 
 The scope is the one microG uses for the Geller/Timeline corpus:
     oauth2:https://www.googleapis.com/auth/webhistory
@@ -37,7 +49,9 @@ def main():
     ap = argparse.ArgumentParser(description="Fetch a webhistory-scoped bearer token.")
     ap.add_argument("--email", required=True)
     ap.add_argument("--android-id", required=True, help="16-hex device/GSF id")
-    ap.add_argument("--app-password", help="omit to be prompted (preferred)")
+    ap.add_argument("--oauth-token", help="oauth2_4/... from the browser sign-in (flow A)")
+    ap.add_argument("--oauth-token-file", help="read the oauth_token from a file (flow A)")
+    ap.add_argument("--app-password", help="legacy flow B; usually BadAuthentication now")
     ap.add_argument("--app-password-file", help="read the app password from a file (mode 600)")
     ap.add_argument("--app-password-stdin", action="store_true", help="read it from stdin (no TTY needed)")
     ap.add_argument("--master-token-file", help="reuse a saved master token instead of logging in")
@@ -50,10 +64,26 @@ def main():
     except ImportError:
         sys.exit("error: pip install gpsoauth")
 
-    # 1. master token — either reuse, or exchange the app password for one
+    # 1. master token — reuse, exchange a browser oauth_token (A), or app password (B)
     if a.master_token_file:
         with open(a.master_token_file) as f:
             master = f.read().strip()
+    elif a.oauth_token or a.oauth_token_file:
+        if a.oauth_token_file:
+            with open(a.oauth_token_file) as f: ot = f.read().strip()
+        else:
+            ot = a.oauth_token.strip()
+        if not ot.startswith("oauth2_4/"):
+            print("warning: oauth_token usually starts with 'oauth2_4/'", file=sys.stderr)
+        r = gpsoauth.exchange_token(a.email, ot, a.android_id)
+        master = r.get("Token")
+        if not master:
+            sys.exit(f"token exchange failed: {r.get('Error') or r.get('ErrorDetail') or r}\n"
+                     "the oauth_token is single-use and short-lived — redo the browser sign-in")
+        if a.save_master:
+            with open(a.save_master, "w") as f: f.write(master)
+            import os; os.chmod(a.save_master, 0o600)
+            print(f"master token saved to {a.save_master} (mode 600 — treat as a password)", file=sys.stderr)
     else:
         if a.app_password_file:
             with open(a.app_password_file) as f: pw = f.read().strip()
