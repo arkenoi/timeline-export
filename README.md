@@ -324,6 +324,15 @@ ExternalDbSnapshot → rows.semantic_segment`.
 **It performs no authentication and no key extraction** — you supply both, and nothing is
 stored, logged, or echoed. `--sync-token` makes subsequent fetches incremental.
 
+`get_token.py` covers the token half (you supply an app password; it does the documented
+gpsoauth master-login → scoped-bearer exchange):
+
+```bash
+pip install gpsoauth
+python3 get_token.py --email you@gmail.com \
+  --android-id "$(docker exec rd settings get secure android_id)" --out out/tok.txt
+```
+
 **Status: the decode/decrypt path is verified end-to-end offline** (real segment blobs
 round-tripped through a synthesized encrypted response into the normal decoder, 0 errors,
 placeIds intact). The **live call is unverified**, and obtaining the two inputs is the
@@ -434,6 +443,7 @@ services or deleting the volume destroys it; re-import to rebuild.
 - `place_names.py` — resolve placeIds → names/categories via the Places API (keyed).
 - `travel_mode.py` — deterministic travel-mode / modal-split analyzer.
 - `geller_fetch.py` — experimental container-free fetch (you supply token + key).
+- `get_token.py` — obtain the webhistory-scoped bearer via gpsoauth (you supply an app password).
 - `package.json` — node dep (`puppeteer-core`) for `resolve_names.js`.
 - `sample-output.json` — synthetic example of the output schema.
 - `docs/microg-path.md` — research notes on replacing the redroid stack with microG (not built).
