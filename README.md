@@ -348,13 +348,33 @@ below that is verified offline (real segment blobs round-tripped through a synth
 encrypted response into the normal decoder, 0 errors, placeIds intact).
 `content-type` must be exactly `application/grpc` — `application/grpc+proto` 404s.
 
-**The one unsolved input is the key:**
+**Both inputs are now solved.** One-time bootstrap from a device already enrolled in the
+security domain (a rooted phone, or this project's redroid container), then it runs
+anywhere with no Android:
+
+```bash
+python3 extract_key.py --container rd -o out/key.b64   # one time
+python3 get_token.py --email you@example.com \
+  --android-id "$(docker exec rd settings get secure android_id)" \
+  --oauth-token-file oauth.txt --out out/tok.txt       # token expires ~1h
+python3 geller_fetch.py --token-file out/tok.txt --key-file out/key.b64 \
+  -o out/odlh-storage.db
+python3 odlh_export.py out/odlh-storage.db -o out/Timeline-latest.json --stats
+```
+
+Measured against the container path on the same account: **4,582 segments vs 4,490, and
+current-to-today vs 5 days stale** — the cloud fetch has no backup/import lag. 0 decode
+errors; the existing decoder is unchanged.
+
+Inputs, for reference:
 - `--token`: an OAuth bearer for scope `https://www.googleapis.com/auth/webhistory` —
   **solved**, see `get_token.py`
-- `--key`: base64 of the 32-byte AES key for the `on_device_location_history`
-  security domain. microG obtains it via a Google-hosted page + JS bridge; whether that
-  works off-device — or needs a device already enrolled in the security domain — is
-  **not established**.
+- `--key`: base64 of the 32-byte AES key for the `on_device_location_history` security
+  domain — `extract_key.py` reads it from an enrolled device's
+  `files/folsom/shared/FolsomKeyStore.pb`, where it is stored **in the clear** (unlike
+  `hw_protected`, whose key material is wrapped). Enrollment is still required *once*:
+  the key only exists on a device that has synced Timeline. The store records a key epoch,
+  so re-run `extract_key.py` if the key ever rotates.
 
 ## Refreshing the data (headless, no LLM) — `reimport.sh`
 
@@ -456,7 +476,8 @@ services or deleting the volume destroys it; re-import to rebuild.
 - `place_names.py` — resolve placeIds → names/categories via the Places API (keyed).
 - `travel_mode.py` — deterministic travel-mode / modal-split analyzer.
 - `geller_fetch.py` — experimental container-free fetch (you supply token + key).
-- `get_token.py` — obtain the webhistory-scoped bearer via gpsoauth (you supply an app password).
+- `get_token.py` — obtain the webhistory-scoped bearer (browser sign-in → exchange).
+- `extract_key.py` — one-time: read the security-domain key from an enrolled device.
 - `package.json` — node dep (`puppeteer-core`) for `resolve_names.js`.
 - `sample-output.json` — synthetic example of the output schema.
 - `docs/microg-path.md` — research notes on replacing the redroid stack with microG (not built).
