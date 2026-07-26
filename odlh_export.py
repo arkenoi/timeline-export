@@ -124,6 +124,9 @@ def dec_visit(p):
     d3 = submsg(p, 3)
     cand = submsg(d3, 1) if d3 else None
     out = {"probability": round(f32(first(cand,2)[1]),4)} if cand and first(cand,2) and first(cand,2)[0]==5 else {}
+    # VisitProto #6 = is_confirmed: the user explicitly confirmed this visit in Maps
+    conf = first(cand, 6) if cand else None
+    if conf and conf[0] == 0 and conf[1]: out["isConfirmed"] = True
     top = submsg(cand, 4) if cand else None
     tc = {}
     if top:

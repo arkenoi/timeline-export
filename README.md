@@ -144,7 +144,15 @@ paths: a browser renderer (no API key) or the Places API (key).
   `5 = SEARCHED_ADDRESS` (rare). `2 = WORK` per Google's convention (may not appear).
   The enum is Google's, so `1 = HOME` holds for any account.
 - `placeTypeCode` (#1000) is Google's numeric place-type taxonomy (restaurant/park/…)
-  — hundreds of codes, no public mapping table shipped here; emitted raw.
+  — hundreds of codes, no public mapping table shipped here; emitted raw. It is **coarser
+  than a category name** and is *not* a substitute for name resolution: measured against
+  resolved categories, only 5 of 55 observed codes map to a single category ≥80% of the
+  time (e.g. `3 → International airport` 100%, `100 → Park` 99%, but `114 → Restaurant`
+  only 73%). Use it for grouping, not labelling.
+- `visit.isConfirmed` is set when you explicitly confirmed the visit in Maps
+  (`VisitProto.is_confirmed`) — a high-trust subset.
+- `PlaceCandidate.top_place_type` (#7) exists but is **empty in practice** (0 for 1222 of
+  1225 visits), so it is not emitted.
 
 ### Schema provenance
 
