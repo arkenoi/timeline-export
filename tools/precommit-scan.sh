@@ -39,8 +39,11 @@ fi
 
 # and the same scan across ALL history, not just the working tree
 echo "-- history --"
-if git grep -niE 'ChIJ[A-Za-z0-9_-]{22,}|oauth2_4/|AIza[0-9A-Za-z_-]{30,}|aas_et/' \
-     $(git rev-list --all) -- . ':!sample-output.json' 2>/dev/null | head -5 ; then
+# require enough trailing entropy to be an actual credential, not the documented prefix
+hist=$(git grep -nIE 'ChIJ[A-Za-z0-9_-]{22,}|oauth2_4/[A-Za-z0-9_-]{20,}|AIza[0-9A-Za-z_-]{30,}|aas_et/[A-Za-z0-9_-]{10,}|ya29\.[A-Za-z0-9_-]{20,}' \
+     $(git rev-list --all) -- . ':!sample-output.json' 2>/dev/null | head -5)
+if [ -n "$hist" ]; then
+  echo "$hist"
   echo "  !! matches found in git history — a fix-forward commit is not enough; rewrite it"
   fail=1
 fi
