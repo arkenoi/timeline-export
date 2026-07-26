@@ -56,6 +56,7 @@ def main():
     ap.add_argument("--app-password-stdin", action="store_true", help="read it from stdin (no TTY needed)")
     ap.add_argument("--master-token-file", help="reuse a saved master token instead of logging in")
     ap.add_argument("--save-master", metavar="PATH", help="persist the master token (treat as a password)")
+    ap.add_argument("--scope", default=SCOPE, help=f"OAuth scope (default: {SCOPE})")
     ap.add_argument("--out", help="write the bearer here instead of stdout")
     a = ap.parse_args()
 
@@ -108,7 +109,7 @@ def main():
             print(f"master token saved to {a.save_master} (mode 600 — treat as a password)", file=sys.stderr)
 
     # 2. exchange it for a bearer scoped to the Geller/Timeline corpus
-    r = gpsoauth.perform_oauth(a.email, master, a.android_id, service=SCOPE,
+    r = gpsoauth.perform_oauth(a.email, master, a.android_id, service=a.scope,
                                app=APP, client_sig=CLIENT_SIG)
     tok = r.get("Auth")
     if not tok:

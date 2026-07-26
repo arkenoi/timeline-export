@@ -348,12 +348,14 @@ below that is verified offline (real segment blobs round-tripped through a synth
 encrypted response into the normal decoder, 0 errors, placeIds intact).
 `content-type` must be exactly `application/grpc` — `application/grpc+proto` 404s.
 
-**Both inputs are now solved.** One-time bootstrap from a device already enrolled in the
-security domain (a rooted phone, or this project's redroid container), then it runs
-anywhere with no Android:
+**Both inputs are solved, and no Android is required at all.** The key can be obtained
+with a browser alone (`web_key.py`), or read from an enrolled device if you have one
+(`extract_key.py`) — both yield the identical key:
 
 ```bash
-python3 extract_key.py --container rd -o out/key.b64   # one time
+python3 web_key.py --email you@example.com --android-id <16 hex> \
+  --master-token-file out/master.txt --headful -o out/key.b64   # one time, browser only
+# (or, if you have an enrolled device: python3 extract_key.py --container rd -o out/key.b64)
 python3 get_token.py --email you@example.com \
   --android-id "$(docker exec rd settings get secure android_id)" \
   --oauth-token-file oauth.txt --out out/tok.txt       # token expires ~1h
@@ -477,7 +479,8 @@ services or deleting the volume destroys it; re-import to rebuild.
 - `travel_mode.py` — deterministic travel-mode / modal-split analyzer.
 - `geller_fetch.py` — experimental container-free fetch (you supply token + key).
 - `get_token.py` — obtain the webhistory-scoped bearer (browser sign-in → exchange).
-- `extract_key.py` — one-time: read the security-domain key from an enrolled device.
+- `web_key.py` — one-time: get the security-domain key with a browser (no Android).
+- `extract_key.py` — one-time alternative: read it from an already-enrolled device.
 - `package.json` — node dep (`puppeteer-core`) for `resolve_names.js`.
 - `sample-output.json` — synthetic example of the output schema.
 - `docs/microg-path.md` — research notes on replacing the redroid stack with microG (not built).
