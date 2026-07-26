@@ -31,7 +31,10 @@ const NAV_TIMEOUT = parseInt(process.env.NAV_TIMEOUT_MS || '45000');  // page-lo
 const ATTEMPTS = parseInt(process.env.RESOLVE_ATTEMPTS || '2');       // retry transient timeouts
 if (!inFile) { console.error('usage: node resolve_names.js <timeline.json> [-o out.json]'); process.exit(2); }
 
-const outDir = path.dirname(outFile || inFile);
+// Cache and cookie jar live beside the DATA, not the output: callers legitimately pass
+// -o /dev/null (they only want the cache warmed), and deriving from that wrote the cache
+// to /dev.
+const outDir = path.dirname(path.resolve(inFile));
 const jarFile = process.env.CONSENT_JAR || path.join(outDir, 'consent_cookies.txt');
 const cacheFile = path.join(outDir, 'place_cache_browser.json');
 
