@@ -38,6 +38,8 @@ def main():
     ap.add_argument("--email", required=True)
     ap.add_argument("--android-id", required=True, help="16-hex device/GSF id")
     ap.add_argument("--app-password", help="omit to be prompted (preferred)")
+    ap.add_argument("--app-password-file", help="read the app password from a file (mode 600)")
+    ap.add_argument("--app-password-stdin", action="store_true", help="read it from stdin (no TTY needed)")
     ap.add_argument("--master-token-file", help="reuse a saved master token instead of logging in")
     ap.add_argument("--save-master", metavar="PATH", help="persist the master token (treat as a password)")
     ap.add_argument("--out", help="write the bearer here instead of stdout")
@@ -53,7 +55,18 @@ def main():
         with open(a.master_token_file) as f:
             master = f.read().strip()
     else:
-        pw = a.app_password or getpass.getpass("Google app password: ")
+        if a.app_password_file:
+            with open(a.app_password_file) as f: pw = f.read().strip()
+        elif a.app_password_stdin:
+            pw = sys.stdin.readline().strip()
+        elif a.app_password:
+            pw = a.app_password
+        elif sys.stdin.isatty():
+            pw = getpass.getpass("Google app password: ")
+        else:
+            sys.exit("no TTY for a hidden prompt — run this in a real terminal, or use "
+                     "--app-password-file PATH, or pipe it with --app-password-stdin")
+        if not pw: sys.exit("empty app password")
         r = gpsoauth.perform_master_login(a.email, pw, a.android_id)
         master = r.get("Token")
         if not master:
