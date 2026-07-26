@@ -160,13 +160,10 @@ paths: a browser renderer (no API key) or the Places API (key).
 - `placeTypeCode` (#1000) is Google's numeric place-type taxonomy (restaurant/park/…)
   — hundreds of codes, no public mapping table shipped here; emitted raw. It is **coarser
   than a category name** and is *not* a substitute for name resolution: measured against
-  resolved categories, only 5 of 55 observed codes map to a single category ≥80% of the
-  time (e.g. `3 → International airport` 100%, `100 → Park` 99%, but `114 → Restaurant`
-  only 73%). Use it for grouping, not labelling.
+  resolved categories, only a small minority of observed codes map to a single category ≥80% of the time (a few are reliable; many are not). Use it for grouping, not labelling.
 - `visit.isConfirmed` is set when you explicitly confirmed the visit in Maps
   (`VisitProto.is_confirmed`) — a high-trust subset.
-- `PlaceCandidate.top_place_type` (#7) exists but is **empty in practice** (0 for 1222 of
-  1225 visits), so it is not emitted.
+- `PlaceCandidate.top_place_type` (#7) exists but is **empty in practice** (empty on essentially every visit observed), so it is not emitted.
 
 ### Schema provenance
 
@@ -179,8 +176,7 @@ segment_id=6, finalization_status=9, display_mode=10, source=11, metadata=12}`, 
 `PlaceCandidate{feature_id=1, semantic_type=2, probability=3, location=5}`.
 
 One documented disagreement: microG names fields **7/8** `hierarchy_level` /
-`finalization_state`. Observed data contradicts that — across a full dataset they are
-always *equal to each other* and only ever the local standard-time or DST offset,
+`finalization_state`. Observed data contradicts that — they are consistently *equal to each other* and only ever the local standard-time or DST offset,
 switching with the season. This decoder therefore reads them as start/end **UTC offset
 minutes**, which is also what makes the emitted timestamps line up with reality.
 
@@ -311,10 +307,7 @@ itself — **no adb or scrcpy**. Credentials come from the prompt or `$GMAIL_USE
 Caveat: Google challenges automated sign-in on rooted / non-Play-certified devices
 (redroid is both), so a CAPTCHA is possible. `login.sh` verifies the result and reports
 if it couldn't confirm; if Google throws a challenge, clear it once on the device and
-re-run. (`login_token.sh` is an **experimental** WebView-free path: it fetches a Google master
-token from an app-password and injects the account — no CAPTCHA, but modern full GMS may
-reject a manually-added account. Try it if the WebView keeps failing.)
-
+re-run. 
 The account and its OAuth tokens live in the container's `/data` volume, never in this
 repo — so don't publish a snapshot of that volume.
 
@@ -338,8 +331,8 @@ ExternalDbSnapshot → rows.semantic_segment`.
 **It performs no authentication and no key extraction** — you supply both, and nothing is
 stored, logged, or echoed. `--sync-token` makes subsequent fetches incremental.
 
-`get_token.py` covers the token half (you supply an app password; it does the documented
-gpsoauth master-login → scoped-bearer exchange):
+`get_token.py` covers the token half — a normal browser sign-in, then a gpsoauth token
+exchange:
 
 ```bash
 pip install gpsoauth
@@ -352,15 +345,13 @@ python3 get_token.py --email you@example.com \
   --oauth-token-file oauth.txt --out out/tok.txt
 ```
 
-The legacy app-password flow (`--app-password`) still exists but Google has largely
-retired it — expect `BadAuthentication`. The `oauth_token` is single-use and short-lived.
+The `oauth_token` is single-use and short-lived.
 
-**Status: the live fetch is verified.** With a real `webhistory` bearer the RPC returns
-HTTP 200 over HTTP/2 and ~2.7 MB of `SyncResult` containing the account's `GellerElement`s;
-the client parses them down to `GellerE2eeElement` and stops at AES-GCM. The decode path
-below that is verified offline (real segment blobs round-tripped through a synthesized
-encrypted response into the normal decoder, 0 errors, placeIds intact).
-`content-type` must be exactly `application/grpc` — `application/grpc+proto` 404s.
+How it works: the RPC returns a `SyncResult` containing `GellerElement`s for the account,
+each an AES-256-GCM `GellerE2eeElement`; the client decrypts them, walks
+`ExternalDbSync → ExternalDbSnapshot → rows`, and writes the `semantic_segment` blobs into
+an `odlh-storage.db` the normal decoder reads. `content-type` must be exactly
+`application/grpc` — `application/grpc+proto` returns a 404.
 
 **Both inputs are solved, and no Android is required at all.** The key can be obtained
 with a browser alone (`web_key.py`), or read from an enrolled device if you have one
@@ -377,10 +368,6 @@ python3 geller_fetch.py --token-file out/tok.txt --key-file out/key.b64 \
   -o out/odlh-storage.db
 python3 odlh_export.py out/odlh-storage.db -o out/Timeline-latest.json --stats
 ```
-
-Measured against the container path on the same account: **4,582 segments vs 4,490, and
-current-to-today vs 5 days stale** — the cloud fetch has no backup/import lag. 0 decode
-errors; the existing decoder is unchanged.
 
 Inputs, for reference:
 - `--token`: an OAuth bearer for scope `https://www.googleapis.com/auth/webhistory` —
@@ -477,7 +464,6 @@ services or deleting the volume destroys it; re-import to rebuild.
 
 - `setup.sh` — one-shot bring-up of the whole pipeline on a clean machine.
 - `login.sh` — best-effort automated Google sign-in for a fresh container (optional).
-- `login_token.sh` — experimental WebView-free sign-in via a Google master token.
 - `export_all.sh` — one command: decode → resolve names → comprehensive records.
 - `build_records.py` — deterministic builder: enriched visits + rich trip records.
 - `redroid/redroid-stability.sh` — host supervisor (lmkd watchdog + display keep-awake).

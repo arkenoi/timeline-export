@@ -109,9 +109,8 @@ say "Sign in to your Google account"
 if docker exec "$CONTAINER" dumpsys account 2>/dev/null | grep -q 'type=com.google'; then
   echo "a Google account is already signed in — good"
 else
-  LOGIN="$(ask 'Sign in: [a]utomated (email+password), [t]oken (experimental, app-password), or [m]anual?' 'a')"
+  LOGIN="$(ask 'Sign in: [a]utomated (email+password) or [m]anual on-screen?' 'a')"
   case "${LOGIN:0:1}" in
-    t|T) RD_CONTAINER="$CONTAINER" ./login_token.sh || echo "  token path didn't take — try ./login.sh" ;;
     m|M) docker exec "$CONTAINER" am start -a android.settings.ADD_ACCOUNT_SETTINGS --es account_types com.google >/dev/null 2>&1 || true
          echo "  Complete the sign-in on the device (its display, or scrcpy)."
          read -r -p "  Press Enter once you are signed in... " _ ;;
