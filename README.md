@@ -48,9 +48,9 @@ binder/ashmem. Options off Linux:
 ## Usage
 
 ```bash
-./export_all.sh                # ONE command: decode → resolve names → comprehensive records
-                               #   → out/Timeline-full.json (enriched visits + rich trips)
-./export_all.sh --reimport     # refresh from the cloud backup first
+./export_all.sh --cloud        # container-free: fetch from Google → records (recommended)
+./export_all.sh                # via the Android container: decode → resolve → records
+./export_all.sh --reimport     # container path, refreshing the backup first
 ./fetch_and_export.sh [OUTDIR] # just decode the on-device DB → out/Timeline-latest.json
 ```
 

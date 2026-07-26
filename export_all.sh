@@ -14,12 +14,26 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; cd "$HERE"
 [ "${1:-}" = "--reimport" ] && { REIMPORT=1; shift; } || REIMPORT=0
+# --cloud: fetch straight from Google (no Android container in the data path).
+# Needs out/tok.txt (get_token.py) and out/key.b64 (extract_key.py, one-time).
+[ "${1:-}" = "--cloud" ] && { CLOUD=1; shift; } || CLOUD=0
 OUT="${1:-out}"
 
 [ "$REIMPORT" = "1" ] && { echo "[*] refreshing backup…"; ./reimport.sh || echo "  (reimport unverified — continuing with on-device data)"; }
 
-echo "[*] decoding on-device Timeline…"
-./fetch_and_export.sh "$OUT" >/dev/null || { echo "!! decode failed — not rebuilding records" >&2; exit 1; }
+if [ "$CLOUD" = "1" ]; then
+  echo "[*] fetching from Google (container-free)…"
+  [ -s "$OUT/tok.txt" ]  || { echo "!! $OUT/tok.txt missing — run get_token.py" >&2; exit 1; }
+  [ -s "$OUT/key.b64" ] || { echo "!! $OUT/key.b64 missing — run extract_key.py once" >&2; exit 1; }
+  python3 geller_fetch.py --token-file "$OUT/tok.txt" --key-file "$OUT/key.b64" \
+    -o "$OUT/odlh-storage.db" || { echo "!! cloud fetch failed" >&2; exit 1; }
+  TS="$(date +%Y%m%d-%H%M%S)"
+  python3 odlh_export.py "$OUT/odlh-storage.db" -o "$OUT/Timeline-$TS.json" --stats || exit 1
+  ln -sf "Timeline-$TS.json" "$OUT/Timeline-latest.json"
+else
+  echo "[*] decoding on-device Timeline…"
+  ./fetch_and_export.sh "$OUT" >/dev/null || { echo "!! decode failed — not rebuilding records" >&2; exit 1; }
+fi
 
 if [ "${RESOLVE:-1}" = "1" ]; then
   if [ -n "${GOOGLE_MAPS_API_KEY:-}" ]; then

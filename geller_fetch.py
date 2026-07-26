@@ -186,7 +186,12 @@ SCHEMA = """CREATE TABLE IF NOT EXISTS semantic_segment_table(
  segment_type INTEGER NOT NULL, hierarchy_level INTEGER, fprint INTEGER);"""
 
 def write_db(path, records):
-    con = sqlite3.connect(path); con.execute(SCHEMA)
+    # Always build a FRESH db: a BatchSync response is a complete snapshot of the corpus,
+    # and appending into a container-copied file fails anyway (its real schema declares
+    # obfuscated_gaia_id NOT NULL with no default). Write to .tmp, then replace atomically.
+    tmp = path + ".tmp"
+    if os.path.exists(tmp): os.unlink(tmp)
+    con = sqlite3.connect(tmp); con.execute(SCHEMA)
     n = 0
     for r in records:
         try:
@@ -200,7 +205,9 @@ def write_db(path, records):
             n += 1
         except Exception as e:
             print(f"  warn: row {r.get('segment_id')!r} skipped: {e}", file=sys.stderr)
-    con.commit(); con.close(); return n
+    con.commit(); con.close()
+    os.replace(tmp, path)
+    return n
 
 # ---------- main ----------
 def read_secret(inline, path, what):
