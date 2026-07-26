@@ -29,3 +29,6 @@ __pycache__/
 
 # node deps for the browser resolver (puppeteer-core)
 node_modules/
+
+# personal terms used by tools/precommit-scan.sh — never commit
+.private-denylist

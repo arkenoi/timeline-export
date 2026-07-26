@@ -35,7 +35,7 @@ def parse_location(addr):
     loc = {"country": parts[-1]}
     if len(parts) >= 2:
         cand = parts[-2]
-        m = _POSTAL.match(cand)                       # "90210 Springfield"  (postcode first)
+        m = _POSTAL.match(cand)                       # "90210 Springfield" (postcode first)
         m_us = _POSTAL_TRAIL.match(cand)              # "CA 90210" / "Springfield 90210"
         if m:
             loc["postalCode"] = m.group(2); loc["town"] = m.group(3).strip()
