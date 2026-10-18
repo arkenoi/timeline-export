@@ -246,6 +246,17 @@ throttling/CAPTCHA; the default delay is deliberately conservative, and the cach
 you resolve each place only once, ever. This is scraping, so it's on you to keep it
 gentle and within Google's ToS.
 
+To see browser-resolution progress in the terminal as well as in
+`$TIMELINE_OUT/resolve.log`, run `./export_all.sh --cloud --verbose`. Progress counts
+distinct places, with elapsed time, an approximate ETA based on completed lookups,
+and the number of unresolved places.
+
+You can interrupt with Ctrl+C and later run `./export_all.sh --resume --verbose`.
+This reuses `Timeline-latest.json` and the place cache without fetching or decoding
+the backup again. Each completed lookup is saved atomically; the lookup in flight
+may need to be repeated. Failed lookups are retried on the next run. Use the same
+output directory (`$TIMELINE_OUT`, default `~/timeline-data`, or an explicit OUTDIR).
+
 ### Option B — Places API, keyed (`place_names.py`)
 
 Official, fast, richer (adds `placeCategory`/types). Needs a Google Maps Platform key

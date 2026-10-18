@@ -54,12 +54,21 @@ for (const s of doc.semanticSegments) {
   if (fid && !fids.includes(fid)) fids.push(fid);
 }
 // (re)resolve if uncached OR a pre-address-schema entry (no 'category' field yet)
-let todo = fids.filter(f => !cache[f] || cache[f].category === undefined);
+let todo = fids.filter(f => !cache[f] || cache[f].category === undefined || cache[f].error);
+const cached = fids.length - todo.length;
 if (LIMIT) todo = todo.slice(0, LIMIT);
-console.error(`${fids.length} distinct places; ${Object.keys(cache).length} cached; resolving ${todo.length}`);
+console.error(`${fids.length} distinct places; ${cached} cached; resolving ${todo.length}`);
 
 const cidOf = fid => BigInt(fid.split(':')[1]).toString();
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+const duration = ms => {
+  const minutes = Math.ceil(ms / 60000);
+  return minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+};
+const saveCache = () => {
+  fs.writeFileSync(cacheFile + '.tmp', JSON.stringify(cache, null, 1));
+  fs.renameSync(cacheFile + '.tmp', cacheFile);
+};
 
 (async () => {
   const browser = await P.launch({ executablePath: CHROME, headless: 'new',
@@ -67,7 +76,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const pg = await browser.newPage();
   for (const c of cookies) { try { await pg.setCookie(c); } catch (e) {} }
 
-  let done = 0;
+  let done = 0, unresolved = 0;
+  const started = Date.now();
   for (const fid of todo) {
     const cid = cidOf(fid);
     const rec = { name: null, ftidMatch: false };
@@ -94,14 +104,17 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       if (rec.name || !/timeout|timed out|ERR_ABORTED|ERR_NETWORK/i.test(rec.error || '')) break;
       if (attempt < ATTEMPTS) await sleep(3000);
     }
+    if (rec.name) delete rec.error;
+    else unresolved++;
     cache[fid] = rec;
-    if (++done % 10 === 0 || done === todo.length) {
-      fs.writeFileSync(cacheFile, JSON.stringify(cache, null, 1));
-      console.error(`  ${done}/${todo.length}`);
-    }
-    await sleep(DELAY_MS);
+    saveCache();
+    done++;
+    const elapsed = Date.now() - started;
+    const eta = (todo.length - done) * (elapsed + DELAY_MS) / done;
+    console.error(`  ${done}/${todo.length} (${Math.round(100 * done / todo.length)}%) — elapsed ${duration(elapsed)}, ETA ~${duration(eta)}, unresolved ${unresolved}`);
+    if (done < todo.length) await sleep(DELAY_MS);
   }
-  fs.writeFileSync(cacheFile, JSON.stringify(cache, null, 1));
+  saveCache();
   await browser.close();
 
   // merge names into export
