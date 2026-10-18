@@ -15,6 +15,7 @@ required for anything.
 
 ```bash
 pip install 'httpx[http2]' cryptography gpsoauth
+npm ci                            # puppeteer-core, also needed by web_key.py
 
 # 1. sign in normally (2FA and all), in your own browser, at:
 #    https://accounts.google.com/embedded/setup/android?source=com.google.android.gms&xoauth_display_name=Android%20Device
@@ -29,6 +30,9 @@ python3 web_key.py --email you@example.com \
 # 3. fetch + decode + build records
 ./export_all.sh --cloud
 ```
+
+`web_key.py` needs a system Chromium/Chrome. If it is not at
+`/usr/bin/chromium-browser`, pass `--chrome /path/to/your/browser`.
 
 `--from-browser` reads the `oauth_token` cookie your browser received — the same value you
 would otherwise copy from DevTools (`--oauth-token-file` still works if you prefer that, or

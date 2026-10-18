@@ -17,3 +17,6 @@ jobs:
 
       - name: Node syntax (--check)
         run: for f in $(git ls-files '*.js'); do echo "  $f"; node --check "$f"; done
+
+      - name: Regression tests
+        run: python3 -m unittest discover -s tests
